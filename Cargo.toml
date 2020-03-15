@@ -1,0 +1,13 @@
+[package]
+name = "sample_test"
+version = "0.1.0"
+authors = ["Nathan Vegdahl <cessen@cessen.com>"]
+edition = "2018"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+png_encode_mini = "0.1.2"
+primal = "0.2.3"
+rand = "0.7.3"
