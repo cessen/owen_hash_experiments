@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::fs::File;
 
 mod halton;
@@ -7,10 +9,16 @@ fn main() {
     // let sobol_vecs = sobol::num_gen::generate_direction_vectors(16);
 
     let (perms, stats) = optimize(
-        1 << 10,
+        1 << 14,
+        1,
         4,
-        4,
-        || [rand::random::<u32>() & (!1), rand::random::<u32>() & (!1), rand::random::<u32>() & (!1)],
+        || {
+            [
+                rand::random::<u32>() & (!1),
+                rand::random::<u32>() & (!1),
+                rand::random::<u32>() & (!1),
+            ]
+        },
         |n| {
             let idx = rand::random::<u8>() as usize % n.len();
             let mut n = n;
@@ -113,43 +121,43 @@ where
 {
     const CAND: usize = 4;
     let mut current: Vec<_> = (0..CAND)
-        .map(|_| (generate(), std::f64::INFINITY, [0.0f64; 32]))
+        .map(|_| (generate(), std::f64::INFINITY, [[0.0f64; 32]; 32]))
         .collect();
 
     for _ in 0..rounds {
         let do_score = |a| {
             const EX_ROUNDS: u32 = 1024;
-            let mut stats = [0u32; 32];
+            let mut stats = [[0u32; 32]; 32];
             for i in 0..EX_ROUNDS {
-                let b = if i < 32 {
-                    i
-                } else {
-                    rand::random::<u32>()
-                };
+                let b = if i < 32 { i } else { rand::random::<u32>() };
                 let c = execute(b, a);
-                for i in 0..32 {
-                    let b2 = b ^ (1 << i);
+                for bit_in in 0..32 {
+                    let b2 = b ^ (1 << bit_in);
                     let c2 = execute(b2, a);
                     let diff = c ^ c2;
-                    for i2 in 0..32 {
-                        if (diff & (1 << i2)) != 0 {
-                            stats[i2] += 1;
+                    for bit_out in (bit_in + 1)..32 {
+                        if (diff & (1 << bit_out)) != 0 {
+                            stats[bit_in][bit_out] += 1;
                         }
                     }
                 }
             }
 
             // Collect the stats.
-            let mut stats2 = [0.0f64; 32];
-            for i in 0..32 {
-                let mut s = ((stats[i] - EX_ROUNDS) as f64) / ((EX_ROUNDS * i as u32).max(1) as f64) - 0.5;
-                stats2[i] = s;
+            let mut stats2 = [[0.0f64; 32]; 32];
+            for bit_in in 0..32 {
+                for bit_out in (bit_in + 1)..32 {
+                    let mut s = (stats[bit_in][bit_out] as f64) / (EX_ROUNDS as f64) - 0.5;
+                    stats2[bit_in][bit_out] = s;
+                }
             }
 
             // Calculate score.
             let mut score = 0.0;
-            for i in ignore_bits..32 {
-                score += stats2[i] * stats2[i];
+            for bit_in in 0..32 {
+                for bit_out in (bit_in + 1).max(ignore_bits)..32 {
+                    score += stats2[bit_in][bit_out] * stats2[bit_in][bit_out];
+                }
             }
 
             (score, stats2)
@@ -171,5 +179,12 @@ where
         }
     }
 
-    (current[0].0, current[0].2)
+    let mut final_stats = [0.0f64; 32];
+    for i in 0..32 {
+        for j in (i + 1)..32 {
+            final_stats[j] += current[0].2[i][j].abs() / j as f64;
+        }
+    }
+
+    (current[0].0, final_stats)
 }
