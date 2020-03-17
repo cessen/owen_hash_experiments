@@ -6,46 +6,43 @@ mod halton;
 mod sobol;
 
 fn main() {
-    // let sobol_vecs = sobol::num_gen::generate_direction_vectors(16);
+    // let (perms, stats) = optimize(
+    //     1 << 12,
+    //     4, // Simultaneous candidates to use.
+    //     8, // Bits to ignore.
+    //     || {
+    //         [
+    //             rand::random::<u32>() & (!1),
+    //             rand::random::<u32>() & (!1),
+    //             rand::random::<u32>() & (!1),
+    //         ]
+    //     },
+    //     |n| {
+    //         let idx = rand::random::<u8>() as usize % n.len();
+    //         let mut n = n;
+    //         n[idx] = n[idx] ^ (1 << ((rand::random::<u8>() % 31) + 1));
+    //         n
+    //     },
+    //     |a, n| {
+    //         let mut b = a;
+    //         for p in n.iter() {
+    //             b ^= b.wrapping_mul(*p);
+    //         }
+    //         b
+    //     },
+    // );
 
-    let (perms, stats) = optimize(
-        1 << 14,
-        1,
-        4,
-        || {
-            [
-                rand::random::<u32>() & (!1),
-                rand::random::<u32>() & (!1),
-                rand::random::<u32>() & (!1),
-            ]
-        },
-        |n| {
-            let idx = rand::random::<u8>() as usize % n.len();
-            let mut n = n;
-            n[idx] = n[idx] ^ (1 << ((rand::random::<u8>() % 31) + 1));
-            n
-        },
-        |a, n| {
-            let mut b = a;
-            for p in n.iter() {
-                b ^= b.wrapping_mul(*p);
-            }
-            b
-        },
-    );
+    // for x in perms.iter() {
+    //     println!("{:032b}", *x);
+    // }
+    // print!("[");
+    // for p in perms.iter() {
+    //     print!("0x{:08x?}, ", *p);
+    // }
+    // println!("]");
+    // println!("stats: {:0.3?}", stats);
 
-    for x in perms.iter() {
-        println!("{:032b}", *x);
-    }
-    print!("[");
-    for p in perms.iter() {
-        print!("0x{:08x?}, ", *p);
-    }
-    println!("]");
-    println!("stats: {:0.3?}", stats);
-
-    // let perms = [0x08afbbe0, 0xa7389b46, 0x42bf6dbc];
-    // let perms = [0x8457ddf0, 0x539c4da3, 0xa15fb6de, ];
+    let perms = [0x7ed7a4b4, 0xcb95fcb6, 0x4ea13ebc];
 
     //------------------------------------------------
 
@@ -72,8 +69,8 @@ fn main() {
 
     let scramble_1 = hash_u32(0, 0);
     let scramble_2 = hash_u32(1, 0);
-    let dim_1 = 19;
-    let dim_2 = 20;
+    let dim_1 = 0;
+    let dim_2 = 1;
     for i in 0..1024 {
         // let x = (sobol::sample(dim_1, i) * (WIDTH - 1) as f32) as usize;
         // let y = (sobol::sample(dim_2, i) * (HEIGHT - 1) as f32) as usize;
@@ -119,8 +116,7 @@ where
     F2: Fn(T) -> T,
     F3: Fn(u32, T) -> u32,
 {
-    const CAND: usize = 4;
-    let mut current: Vec<_> = (0..CAND)
+    let mut current: Vec<_> = (0..candidates)
         .map(|_| (generate(), std::f64::INFINITY, [[0.0f64; 32]; 32]))
         .collect();
 
