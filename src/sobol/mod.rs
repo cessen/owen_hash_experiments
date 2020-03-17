@@ -22,6 +22,7 @@
 // Owen scrambling implementation also by Nathan Vegdahl (2020).
 
 mod matrices;
+pub mod num_gen;
 
 pub use self::matrices::NUM_DIMENSIONS;
 use self::matrices::{MATRICES, SIZE};
@@ -82,10 +83,12 @@ pub fn sample_owen_scramble(dimension: u32, index: u32, scramble: u32, perms: &[
     // avalanche between bits.
 
     n = n.reverse_bits();
+    n <<= 8;
     n ^= scramble; // Apply the scramble parameter.
     for p in perms.iter() {
         n ^= n.wrapping_mul(*p);
     }
+    n >>= 8;
     n = n.reverse_bits();
 
     // const FAC: u32 = 1;
