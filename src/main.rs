@@ -10,7 +10,7 @@ fn main() {
     // let (perms, stats) = optimize(
     //     1 << 8,
     //     4, // Simultaneous candidates to use.
-    //     8, // Bits to ignore.
+    //     0, // Bits to ignore.
     //     || {
     //         [
     //             rand::random::<u32>() & (!1),
@@ -66,7 +66,7 @@ fn main() {
         let width = RES * DIMS;
         let height = RES * SETS.len();
         let mut image = vec![0xffu8; width * height * 4];
-        let mut file = File::create(&format!("dim_{:02}.png", d1)).unwrap();
+        let mut file = File::create(&format!("dim_{:02}.png", di1)).unwrap();
 
         let mut plot = |x: usize, y: usize| {
             let min_x = x.saturating_sub(PLOT_RADIUS);
@@ -92,10 +92,12 @@ fn main() {
             let d2 = dlist[di1 + 1 + di2];
             for si in 0..SETS.len() {
                 for i in 0..SETS[si] {
-                    let x = sobol::sample_owen(d1, i, hash_u32(d1, 0));
-                    let y = sobol::sample_owen(d2, i, hash_u32(d2, 0));
                     // let x = sobol::sample(d1, i);
                     // let y = sobol::sample(d2, i);
+                    // let x = sobol::sample_owen_slow(d1, i, hash_u32(d1, 0));
+                    // let y = sobol::sample_owen_slow(d2, i, hash_u32(d2, 0));
+                    let x = sobol::sample_owen(d1, i, hash_u32(d1, 0));
+                    let y = sobol::sample_owen(d2, i, hash_u32(d2, 0));
 
                     plot(
                         (x * (RES - 1) as f32) as usize + (RES * di2 as usize),
