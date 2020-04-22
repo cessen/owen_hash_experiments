@@ -80,14 +80,14 @@ pub fn sample_owen_cranley(dimension: u32, index: u32, scramble: u32) -> f32 {
 #[inline]
 pub fn sample_owen_slow(dimension: u32, index: u32, scramble: u32) -> f32 {
     let mut n = sobol_u32(dimension, index);
-    n ^= scramble;
+    n = n.reverse_bits().wrapping_add(scramble).reverse_bits();
     for i in 0..16 {
         let mask = (1 << (31 - i)) - 1;
         let hash = {
             let mut hash = n & (!mask);
             let seed = scramble + i;
             let perms = [0x29aaaaa7, 0x736caf6f, 0x54aad35b, 0x2ab35aaa];
-            for p in perms.iter().cycle().take(6) {
+            for p in perms.iter().cycle().take(20) {
                 hash = hash.wrapping_mul(*p);
                 hash ^= hash.wrapping_shr(16);
                 hash ^= seed;
@@ -147,10 +147,12 @@ fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     // process to maximize low-bias avalanche between bits.
 
     n = n.reverse_bits();
-    n = n.wrapping_add(scramble);
+    n = n.wrapping_add(hash_u32(scramble, 0));
+    // let perms = [0x6C50B47C, 0xB82F1E52, 0xC7AFE638, 0x8D22F6E];
     let perms = [0x97b756bc, 0x4b0a8a12, 0x75c77e36];
     for &p in perms.iter() {
         n ^= n.wrapping_mul(p);
+        n += n << 1;
     }
     n = n.reverse_bits();
 

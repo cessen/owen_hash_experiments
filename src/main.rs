@@ -48,12 +48,10 @@ fn main() {
 
     //------------------------------------------------
 
-    const RES: usize = 256;
-    const SETS: &[u32] = &[64, 256, 1024];
-    const DIMS: usize = 3;
-
+    const RES: usize = 384;
+    const SETS: &[u32] = &[64, 256, 1024, 4096];
+    const DIMS: usize = 1;
     const PLOT_RADIUS: usize = 2;
-    const POINTS: u32 = 1024;
 
     let dlist: &[u32] = &[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
@@ -63,8 +61,8 @@ fn main() {
     for di1 in 0..(dlist.len().saturating_sub(DIMS)) {
         let d1 = dlist[di1];
 
-        let width = RES * DIMS;
-        let height = RES * SETS.len();
+        let width = RES * SETS.len();
+        let height = RES * DIMS;
         let mut image = vec![0xffu8; width * height * 4];
         let mut file = File::create(&format!("dim_{:02}.png", di1)).unwrap();
 
@@ -100,8 +98,8 @@ fn main() {
                     let y = sobol::sample_owen(d2, i, hash_u32(d2, 0));
 
                     plot(
-                        (x * (RES - 1) as f32) as usize + (RES * di2 as usize),
-                        (y * (RES - 1) as f32) as usize + (RES * (SETS.len() - 1 - si)),
+                        (x * (RES - 1) as f32) as usize + (RES * si),
+                        (y * (RES - 1) as f32) as usize + (RES * (DIMS - 1 - di2 as usize)),
                     );
                 }
             }
