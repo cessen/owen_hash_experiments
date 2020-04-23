@@ -50,7 +50,7 @@ fn main() {
 
     const RES: usize = 384;
     const SETS: &[u32] = &[64, 256, 1024, 4096];
-    const DIMS: usize = 1;
+    const DIMS: usize = 3;
     const PLOT_RADIUS: usize = 2;
 
     let dlist: &[u32] = &[
@@ -88,14 +88,14 @@ fn main() {
 
         for di2 in 0..DIMS {
             let d2 = dlist[di1 + 1 + di2];
+            let scramble_1 = ((0 + di1 + di2) * 17) as u32;
+            let scramble_2 = ((1 + di1 + di2) * 13) as u32;
             for si in 0..SETS.len() {
                 for i in 0..SETS[si] {
                     // let x = sobol::sample(d1, i);
                     // let y = sobol::sample(d2, i);
-                    // let x = sobol::sample_owen_slow(d1, i, hash_u32(d1, 0));
-                    // let y = sobol::sample_owen_slow(d2, i, hash_u32(d2, 0));
-                    let x = sobol::sample_owen(d1, i, hash_u32(d1, 0));
-                    let y = sobol::sample_owen(d2, i, hash_u32(d2, 0));
+                    let x = sobol::sample_owen(d1, i, scramble_1);
+                    let y = sobol::sample_owen(d2, i, scramble_2);
 
                     plot(
                         (x * (RES - 1) as f32) as usize + (RES * si),

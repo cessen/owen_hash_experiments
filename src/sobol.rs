@@ -15,30 +15,6 @@ pub fn sample(dimension: u32, index: u32) -> f32 {
     u32_to_0_1_f32(sobol_u32(dimension, index))
 }
 
-/// Same as `sample()` except applies random digit scrambling using the
-/// scramble parameter.
-///
-/// To get proper random digit scrambling, you need to use a different scramble
-/// value for each dimension, and those values should be generated more-or-less
-/// randomly.  For example, using a 32-bit hash of the dimension parameter
-/// works well.
-#[inline]
-pub fn sample_rd(dimension: u32, index: u32, scramble: u32) -> f32 {
-    u32_to_0_1_f32(sobol_u32(dimension, index) ^ scramble)
-}
-
-/// Same as `sample()` except applies Cranley Patterson rotation using the
-/// given scramble parameter.
-///
-/// To get proper Cranley Patterson rotation, you need to use a different
-/// scramble value for each dimension, and those values should be generated
-/// more-or-less randomly.  For example, using a 32-bit hash of the dimension
-/// parameter works well.
-#[inline]
-pub fn sample_cranley(dimension: u32, index: u32, scramble: u32) -> f32 {
-    u32_to_0_1_f32(sobol_u32(dimension, index).wrapping_add(scramble))
-}
-
 /// Same as `sample()` except applies Owen scrambling using the given scramble
 /// parameter.
 ///
@@ -49,55 +25,6 @@ pub fn sample_cranley(dimension: u32, index: u32, scramble: u32) -> f32 {
 #[inline]
 pub fn sample_owen(dimension: u32, index: u32, scramble: u32) -> f32 {
     u32_to_0_1_f32(owen_scramble_u32(sobol_u32(dimension, index), scramble))
-}
-
-/// Same as `sample()` except applies both Owen scrambling and
-/// Cranley-Patterson rotation using the given scramble parameter.
-///
-/// For the technically curious: this first does Owen scrambling, and then
-/// Cranley-Patterson.  If it were done the other way around it would
-/// invalidate the Owen scrambling.
-///
-/// To get proper scrambling and rotation, you need to use a different scramble
-/// value for each dimension, and those values should be generated more-or-less
-/// randomly.  For example, using a 32-bit hash of the dimension parameter
-/// works well.
-#[inline]
-pub fn sample_owen_cranley(dimension: u32, index: u32, scramble: u32) -> f32 {
-    // Reusing the same scramble parameter for both the Owen scrambling and
-    // the Cranely-Patterson rotation actually works fine, because the Owen
-    // scrambling is implemented as a sort of hash, so they don't end up being
-    // correlated.
-    u32_to_0_1_f32(owen_scramble_u32(sobol_u32(dimension, index), scramble).wrapping_add(scramble))
-}
-
-/// Same as `sample_owen()` except uses a slower more full version of
-/// Owen scrambling.
-///
-/// This is mainly intended to help validate the faster Owen scrambling,
-/// and likely shouldn't be used for real things.  It is significantly
-/// slower.
-#[inline]
-pub fn sample_owen_slow(dimension: u32, index: u32, scramble: u32) -> f32 {
-    let mut n = sobol_u32(dimension, index);
-    n = n.reverse_bits().wrapping_add(scramble).reverse_bits();
-    for i in 0..16 {
-        let mask = (1 << (31 - i)) - 1;
-        let hash = {
-            let mut hash = n & (!mask);
-            let seed = scramble + i;
-            let perms = [0x29aaaaa7, 0x736caf6f, 0x54aad35b, 0x2ab35aaa];
-            for p in perms.iter().cycle().take(20) {
-                hash = hash.wrapping_mul(*p);
-                hash ^= hash.wrapping_shr(16);
-                hash ^= seed;
-            }
-            hash
-        };
-        n ^= hash & mask;
-    }
-
-    u32_to_0_1_f32(n)
 }
 
 //----------------------------------------------------------------------
@@ -147,9 +74,9 @@ fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     // process to maximize low-bias avalanche between bits.
 
     n = n.reverse_bits();
-    n = n.wrapping_add(hash_u32(scramble, 0));
     // let perms = [0x6C50B47C, 0xB82F1E52, 0xC7AFE638, 0x8D22F6E];
     let perms = [0x97b756bc, 0x4b0a8a12, 0x75c77e36];
+    n = n.wrapping_add(hash_u32(scramble, 0xa14a177d));
     for &p in perms.iter() {
         n ^= n.wrapping_mul(p);
         n += n << 1;
@@ -167,9 +94,8 @@ fn u32_to_0_1_f32(n: u32) -> f32 {
 
 fn hash_u32(n: u32, seed: u32) -> u32 {
     let mut hash = n;
-    let perms = [0x29aaaaa7, 0x54aad35b, 0x2ab35aaa];
-    for p in perms.iter().cycle().take(6) {
-        hash = hash.wrapping_mul(*p);
+    for _ in 0..2 {
+        hash = hash.wrapping_mul(0x736caf6f);
         hash ^= hash.wrapping_shr(16);
         hash ^= seed;
     }
