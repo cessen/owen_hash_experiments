@@ -42,7 +42,8 @@ fn sobol_u32(dimension: u32, index: u32) -> u32 {
         let j = index.trailing_zeros();
         result ^= vecs[(i + j) as usize];
         i += j + 1;
-        index >>= j + 1;
+        index >>= j;
+        index >>= 1;
     }
 
     (result as u32) << 16
@@ -50,41 +51,42 @@ fn sobol_u32(dimension: u32, index: u32) -> u32 {
 
 /// Scrambles `n` using Owen scrambling and the given scramble parameter.
 #[inline(always)]
-fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
-    // Do Owen scrambling.
-    //
+pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     // This uses the technique presented in the paper "Stratified Sampling for
     // Stochastic Transparency" by Laine and Karras.
-    // The basic idea is that we're running a special kind of hash function
-    // that only allows avalanche to happen downwards (i.e. a bit is only
-    // affected by the bits higher than it).  This is achieved by first
-    // reversing the bits and then doing mixing via multiplication by even
-    // numbers.
-    //
-    // Normally this would be considered a poor hash function, because normally
-    // you want all bits to have an equal chance of affecting all other bits.
-    // But in this case that only-downward behavior is exactly what we want,
-    // because it ends up being equivalent to Owen scrambling.
-    //
-    // Note that the application of the scramble parameter here via addition
-    // does not invalidate the Owen scramble as long as it is done after the
-    // bit the reversal.
-    //
-    // The permutation constants here were selected through an optimization
-    // process to maximize low-bias avalanche between bits.
 
     n = n.reverse_bits();
-    // let perms = [0x6C50B47C, 0xB82F1E52, 0xC7AFE638, 0x8D22F6E];
-    let perms = [0x97b756bc, 0x4b0a8a12, 0x75c77e36];
+
     n = n.wrapping_add(hash_u32(scramble, 0xa14a177d));
-    for &p in perms.iter() {
-        n ^= n.wrapping_mul(p);
-        n += n << 1;
-    }
+
+    n ^= 0xdc967795;
+    n = n.wrapping_mul(0x97b756bb);
+    n ^= 0x866350b1;
+    n = n.wrapping_mul(0x9e3779cd); // Close to golden ratio
+
     n = n.reverse_bits();
 
     // Return the scrambled value.
     n
+}
+
+/// Same as `lk_scramble()` except uses a slower more full version of
+/// hashing.
+///
+/// This is mainly intended to help validate the faster scrambling function,
+/// and likely shouldn't be used for real things.  It is significantly
+/// slower.
+#[allow(dead_code)]
+#[inline]
+fn owen_scramble_slow(mut n: u32, scramble: u32) -> u32 {
+    n = n.reverse_bits();
+    n = n.wrapping_add(hash_u32(scramble, 0));
+    for i in 0..31 {
+        let low_mask = (1u32 << i).wrapping_sub(1);
+        let low_bits_hash = hash_u32((n & low_mask) ^ hash_u32(i, 0), 0);
+        n ^= low_bits_hash & !low_mask;
+    }
+    n.reverse_bits()
 }
 
 #[inline(always)]
@@ -94,7 +96,7 @@ fn u32_to_0_1_f32(n: u32) -> f32 {
 
 fn hash_u32(n: u32, seed: u32) -> u32 {
     let mut hash = n;
-    for _ in 0..2 {
+    for _ in 0..5 {
         hash = hash.wrapping_mul(0x736caf6f);
         hash ^= hash.wrapping_shr(16);
         hash ^= seed;

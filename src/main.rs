@@ -90,8 +90,10 @@ fn main() {
             let d2 = dlist[di1 + 1 + di2];
             let scramble_1 = ((0 + di1 + di2) * 17) as u32;
             let scramble_2 = ((1 + di1 + di2) * 13) as u32;
+            let scramble_3 = ((2 + di1 + di2) * 31) as u32;
             for si in 0..SETS.len() {
                 for i in 0..SETS[si] {
+                    let i = sobol::owen_scramble_u32(i, scramble_3);
                     // let x = sobol::sample(d1, i);
                     // let y = sobol::sample(d2, i);
                     let x = sobol::sample_owen(d1, i, scramble_1);
