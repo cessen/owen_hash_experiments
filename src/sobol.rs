@@ -57,12 +57,32 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
 
     n = n.reverse_bits();
 
-    n = n.wrapping_add(hash_u32(scramble, 0xa14a177d));
+    let scramble = hash_u32(scramble, 0xa14a177d);
 
+    // // LK version
+    // n = n.wrapping_add(scramble);
+    // n ^= n.wrapping_mul(0x6c50b47c);
+    // n ^= n.wrapping_mul(0xb82f1e52);
+    // n ^= n.wrapping_mul(0xc7afe638);
+    // n ^= n.wrapping_mul(0x8d22f6e6);
+
+    // // Improved version 1
+    // n = n.wrapping_add(scramble);
+    // n ^= n.wrapping_mul(0x6c50b47c);
+    // n *= 3;
+    // n ^= n.wrapping_mul(0xb82f1e52);
+    // n *= 3;
+    // n ^= n.wrapping_mul(0xc7afe638);
+    // n *= 3;
+    // n ^= n.wrapping_mul(0x8d22f6e6);
+    // n *= 3;
+
+    // Improved version 2
+    n = n.wrapping_add(scramble);
     n ^= 0xdc967795;
     n = n.wrapping_mul(0x97b756bb);
     n ^= 0x866350b1;
-    n = n.wrapping_mul(0x9e3779cd); // Close to golden ratio
+    n = n.wrapping_mul(0x9e3779cd);
 
     n = n.reverse_bits();
 
