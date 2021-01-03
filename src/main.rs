@@ -8,26 +8,28 @@ mod sobol;
 
 fn main() {
     // let (perms, stats) = optimize(
-    //     1 << 8,
-    //     4, // Simultaneous candidates to use.
+    //     10000,
+    //     16, // Simultaneous candidates to use.
     //     0, // Bits to ignore.
     //     || {
     //         [
-    //             rand::random::<u32>() & (!1),
-    //             rand::random::<u32>() & (!1),
-    //             rand::random::<u32>() & (!1),
+    //             rand::random::<u32>(),
+    //             rand::random::<u32>(),
+    //             rand::random::<u32>(),
+    //             rand::random::<u32>(),
     //         ]
     //     },
     //     |n| {
     //         let idx = rand::random::<u8>() as usize % n.len();
     //         let mut n = n;
-    //         n[idx] = n[idx] ^ (1 << ((rand::random::<u8>() % 31) + 1));
+    //         n[idx] = n[idx] ^ (1 << (rand::random::<u8>() % 32));
     //         n
     //     },
     //     |a, n| {
     //         let mut b = a;
-    //         for p in n.iter() {
-    //             b ^= b.wrapping_mul(*p);
+    //         for p in n.chunks(2) {
+    //             b = b.wrapping_mul(p[0] | 1);
+    //             b ^= p[1];
     //         }
     //         b
     //     },
@@ -43,8 +45,44 @@ fn main() {
     // println!("]");
     // println!("stats: {:0.3?}", stats);
 
-    // let perms = [0x1313e844u32, 0xa14a177e, 0x18c8e432];
-    // let perms = [0xa56bb1c6u32, 0xef577134, 0xd0e5e808, 0x200bd50a];
+    // let perms = [0x68679a93u32, 0x555554ac, 0x0cc58fb8, 0x89417778];
+    // let perms = [0xab6092c7u32, 0xaaab4ab5, 0xbd315472, 0xe7e1291f];
+    // let perms = [0xd34e2eb8u32, 0xaaa56a52, 0x54899673, 0x1a7f6aac];
+    // let perms = [0xcab35168u32, 0xd555a555, 0x77486752, 0x225441c4];
+
+    let avalanche_stats = measure_avalanche(1 << 16, |n| {
+        use sobol::RAND_INTS;
+        let mut n = n;
+
+        // for p in perms.chunks(2).cycle().take(2) {
+        for p in RAND_INTS.chunks(2).cycle().take(2) {
+            n = n.wrapping_mul(p[0] | 1);
+            n ^= p[1];
+        }
+
+        // n = n.reverse_bits();
+        // n = sobol::owen_scramble_u32(n, 0);
+        // // n = sobol::owen_scramble_slow(n, 0);
+        // n = n.reverse_bits();
+
+        n
+    });
+    println!("\n{:0.2?}", avalanche_stats);
+    println!(
+        "{}",
+        (&avalanche_stats[8..])
+            .iter()
+            .map(|n| n.1)
+            .fold(0.0f64, |a, b| a.max(b))
+    );
+    println!(
+        "{}",
+        avalanche_stats
+            .iter()
+            .map(|n| n.1)
+            .fold(0.0f64, |a, b| a + b)
+            / 32.0
+    );
 
     //------------------------------------------------
 
@@ -54,8 +92,9 @@ fn main() {
     const PLOT_RADIUS: usize = 2;
 
     let dlist: &[u32] = &[
-        0, 1, //2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-        //25, 26, 27, 28, 29,
+        0,
+        1, //2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+          //25, 26, 27, 28, 29,
     ];
 
     for di1 in 0..(dlist.len().saturating_sub(DIMS)) {
@@ -93,7 +132,7 @@ fn main() {
             let scramble_3 = ((2 + di1 + di2) * 31) as u32;
             for si in 0..SETS.len() {
                 for i in 0..SETS[si] {
-                    let i = sobol::owen_scramble_u32(i, scramble_3);
+                    // let i = sobol::owen_scramble_u32(i, scramble_3);
                     // let x = sobol::sample(d1, i);
                     // let y = sobol::sample(d2, i);
                     let x = sobol::sample_owen(d1, i, scramble_1);
@@ -137,46 +176,23 @@ where
     F3: Fn(u32, T) -> u32,
 {
     let mut current: Vec<_> = (0..candidates)
-        .map(|_| (generate(), std::f64::INFINITY, [[0.0f64; 32]; 32]))
+        .map(|_| (generate(), std::f64::INFINITY, [(0.0f64, 0.0f64); 32]))
         .collect();
 
-    for _ in 0..rounds {
+    println!();
+    for round in 0..rounds {
+        print!("\rround {}/{}", round, rounds);
         let do_score = |a| {
-            const EX_ROUNDS: u32 = 1024;
-            let mut stats = [[0u32; 32]; 32];
-            for i in 0..EX_ROUNDS {
-                let b = if i < 32 { i } else { rand::random::<u32>() };
-                let c = execute(b, a);
-                for bit_in in 0..32 {
-                    let b2 = b ^ (1 << bit_in);
-                    let c2 = execute(b2, a);
-                    let diff = c ^ c2;
-                    for bit_out in (bit_in + 1)..32 {
-                        if (diff & (1 << bit_out)) != 0 {
-                            stats[bit_in][bit_out] += 1;
-                        }
-                    }
-                }
-            }
-
-            // Collect the stats.
-            let mut stats2 = [[0.0f64; 32]; 32];
-            for bit_in in 0..32 {
-                for bit_out in (bit_in + 1)..32 {
-                    let mut s = (stats[bit_in][bit_out] as f64) / (EX_ROUNDS as f64) - 0.5;
-                    stats2[bit_in][bit_out] = s;
-                }
-            }
+            const EX_ROUNDS: u32 = 100;
+            let stats = measure_avalanche(EX_ROUNDS, |n| execute(n, a));
 
             // Calculate score.
             let mut score = 0.0;
-            for bit_in in 0..32 {
-                for bit_out in (bit_in + 1).max(ignore_bits)..32 {
-                    score += stats2[bit_in][bit_out] * stats2[bit_in][bit_out];
-                }
+            for bit in 1.max(ignore_bits)..32 {
+                score += stats[bit].1; // Sum max bias
             }
 
-            (score, stats2)
+            (score, stats)
         };
 
         for i in 0..candidates {
@@ -194,13 +210,58 @@ where
             }
         }
     }
+    println!();
 
     let mut final_stats = [0.0f64; 32];
     for i in 0..32 {
-        for j in (i + 1)..32 {
-            final_stats[j] += current[0].2[i][j].abs() / j as f64;
-        }
+        final_stats[i] = current[0].2[i].0; // Average bias
     }
 
     (current[0].0, final_stats)
+}
+
+fn measure_avalanche<F>(rounds: u32, hash: F) -> [(f64, f64); 32]
+// (average bias, max bias)
+where
+    F: Fn(u32) -> u32,
+{
+    // Accumulate test data.
+    let mut stats = [[0u32; 32]; 32];
+    for i in 0..rounds {
+        // let b = if i < (rounds / 2) { i } else { rand::random::<u32>() };
+        let b = rand::random::<u32>();
+        let c = hash(b);
+        for bit_in in 0..32 {
+            let b2 = b ^ (1 << bit_in);
+            let c2 = hash(b2);
+            let diff = c ^ c2;
+            for bit_out in (bit_in + 1)..32 {
+                if (diff & (1 << bit_out)) != 0 {
+                    stats[bit_in][bit_out] += 1;
+                }
+            }
+        }
+    }
+
+    // Calculate full stats.
+    let mut stats2 = [[0.0f64; 32]; 32];
+    for bit_in in 0..32 {
+        for bit_out in (bit_in + 1)..32 {
+            let mut s = (stats[bit_in][bit_out] as f64) * 2.0 / (rounds as f64) - 1.0;
+            stats2[bit_in][bit_out] = s;
+        }
+    }
+
+    // Calculate reduced stats
+    let mut final_stats = [(0.0f64, 0.0f64); 32];
+    for i in 0..32 {
+        for j in (i + 1)..32 {
+            final_stats[j].0 += stats2[i][j].abs() / j as f64;
+            if stats2[i][j].abs() > final_stats[j].1.abs() {
+                final_stats[j].1 = stats2[i][j].abs();
+            }
+        }
+    }
+
+    final_stats
 }
