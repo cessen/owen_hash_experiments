@@ -24,6 +24,13 @@ pub fn sample(dimension: u32, index: u32) -> f32 {
 /// works well.
 #[inline]
 pub fn sample_owen(dimension: u32, index: u32, scramble: u32) -> f32 {
+    u32_to_0_1_f32(owen_scramble_u32(sobol_u32(dimension, index), scramble))
+}
+
+/// Same as `sample_owen()` except it uses a slower, full, ground-truth
+/// implementation of Owen scrambling.
+#[inline]
+pub fn sample_owen_slow(dimension: u32, index: u32, scramble: u32) -> f32 {
     u32_to_0_1_f32(owen_scramble_slow(sobol_u32(dimension, index), scramble))
 }
 
@@ -83,12 +90,12 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     // n ^= n.wrapping_mul(0x8d22f6e6);
     // n *= 3;
 
-    // Improved version 2
-    n = n.wrapping_add(scramble);
-    n ^= 0xdc967795;
-    n = n.wrapping_mul(0x97b756bb);
-    n ^= 0x866350b1;
-    n = n.wrapping_mul(0x9e3779cd);
+    // // Improved version 2
+    // n = n.wrapping_add(scramble);
+    // n ^= 0xdc967795;
+    // n = n.wrapping_mul(0x97b756bb);
+    // n ^= 0x866350b1;
+    // n = n.wrapping_mul(0x9e3779cd);
 
     // // Improved version 3
     // n = n.wrapping_add(scramble);
@@ -96,6 +103,21 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     //     n = n.wrapping_mul(p[0] | 1);
     //     n ^= p[1];
     // }
+
+    // Improved version 4
+    // This only really needs one or two rounds, but leaving the constants here
+    // for experimentation.
+    let perms = [
+        (0x9ac7ea2a, 0x7d1e78d3), // Only this first pair is optimized.
+        (0x2ce68764, 0x9dd00551),
+        (0x79b82526, 0x2dfc1a6b),
+        (0xf358b1d0, 0x38743c65),
+    ];
+    n = n.wrapping_add(scramble);
+    for &(p1, p2) in perms.iter().take(1) {
+        n ^= n.wrapping_mul(p1);
+        n = n.wrapping_mul(p2);
+    }
 
     n = n.reverse_bits();
 
@@ -115,10 +137,14 @@ pub fn owen_scramble_slow(n: u32, scramble: u32) -> u32 {
     let n = n ^ hash_u32(scramble, 0);
 
     let mut new = n;
-    for i in 0..31 {
-        let mask = !(1u32 << i + 1).wrapping_sub(1);
-        let hash = hash_u32((n & mask), (i + scramble) * 0x736caf6f);
-        new ^= hash & !mask;
+    for bit in 0..32 {
+        let i = bit + 1;
+        let mask = if i == 32 {
+            0
+        } else {
+            (1u32 << i).wrapping_sub(1)
+        };
+        new ^= hash_u32((n & !mask), ((i + scramble) * 0x736caf6f)) & mask;
     }
     new
 }

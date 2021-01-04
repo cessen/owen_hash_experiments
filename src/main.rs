@@ -8,15 +8,15 @@ mod sobol;
 
 fn main() {
     // let (perms, stats) = optimize(
-    //     10000,
-    //     16, // Simultaneous candidates to use.
-    //     0, // Bits to ignore.
+    //     2500,
+    //     8, // Simultaneous candidates to use.
+    //     2, // Bits to ignore.
     //     || {
     //         [
     //             rand::random::<u32>(),
     //             rand::random::<u32>(),
-    //             rand::random::<u32>(),
-    //             rand::random::<u32>(),
+    //             // rand::random::<u32>(),
+    //             // rand::random::<u32>(),
     //         ]
     //     },
     //     |n| {
@@ -28,8 +28,8 @@ fn main() {
     //     |a, n| {
     //         let mut b = a;
     //         for p in n.chunks(2) {
-    //             b = b.wrapping_mul(p[0] | 1);
-    //             b ^= p[1];
+    //             b ^= b.wrapping_mul(p[0] & !1);
+    //             b = b.wrapping_mul(p[1] | 1);
     //         }
     //         b
     //     },
@@ -45,99 +45,110 @@ fn main() {
     // println!("]");
     // println!("stats: {:0.3?}", stats);
 
-    // let perms = [0x68679a93u32, 0x555554ac, 0x0cc58fb8, 0x89417778];
-    // let perms = [0xab6092c7u32, 0xaaab4ab5, 0xbd315472, 0xe7e1291f];
-    // let perms = [0xd34e2eb8u32, 0xaaa56a52, 0x54899673, 0x1a7f6aac];
-    // let perms = [0xcab35168u32, 0xd555a555, 0x77486752, 0x225441c4];
+    //-------------------------------------------------------------------
 
-    // for hash_rounds in 1..=32 {
-    for hash_rounds in (0..8).map(|n| 1 << n) {
-        let variant_rounds = 64;
-        let avalanche_rounds = (1 << 14);
+    // for &hash_rounds in [1, 2, 3, 4, 8, 16, 32, 64, 128].iter() {
+    //     let variant_rounds = 64;
+    //     let avalanche_rounds = (1 << 14);
 
-        let avalanche_stats = (0..variant_rounds)
-            .map(|seed| {
-                let rand_ints: Vec<u32> = (0..(hash_rounds * 4))
-                    .map(|_| rand::random::<u32>())
-                    .collect();
+    //     let avalanche_stats = (0..variant_rounds)
+    //         .map(|seed| {
+    //             let rand_ints: Vec<u32> = (0..(hash_rounds * 4))
+    //                 .map(|_| rand::random::<u32>())
+    //                 .collect();
 
-                measure_avalanche(avalanche_rounds, |n| {
-                    let mut n = n;
+    //             measure_avalanche(avalanche_rounds, |n| {
+    //                 let mut n = n;
 
-                    // LK rounds
-                    n += hash_u32(seed, 0);
-                    for i in 0..hash_rounds {
-                        n ^= n.wrapping_mul(rand_ints[i] << 1);
-                    }
+    //                 // // LK rounds
+    //                 // n += hash_u32(seed, 0);
+    //                 // for i in 0..hash_rounds {
+    //                 //     n ^= n.wrapping_mul(rand_ints[i] << 1);
+    //                 // }
 
-                    // Improved v3
-                    // n += hash_u32(seed, 0);
-                    // for p in rand_ints.chunks(2).cycle().take(hash_rounds) {
-                    //     n = n.wrapping_mul(p[0] | 1);
-                    //     n ^= p[1];
-                    // }
+    //                 // // Improved v4
+    //                 // n += hash_u32(seed, 0);
+    //                 // for i in 0..hash_rounds {
+    //                 //     n ^= n.wrapping_mul(rand_ints[i] & !1);
+    //                 //     n = n.wrapping_mul(rand_ints[i + hash_rounds] | 1);
+    //                 // }
 
-                    // n = n.reverse_bits();
-                    // // n = sobol::owen_scramble_u32(n, seed);
-                    // n = sobol::owen_scramble_slow(n, seed);
-                    // n = n.reverse_bits();
+    //                 // // // Improved v4 with optimized constants.
+    //                 // let perms = [
+    //                 //     (0x9ac7ea2a, 0x7d1e78d3), // Only this first pair is optimized.
+    //                 //     (0x2ce68764, 0x9dd00551),
+    //                 //     (0x79b82526, 0x2dfc1a6b),
+    //                 //     (0xf358b1d0, 0x38743c65),
+    //                 // ];
+    //                 // n += hash_u32(seed, 0);
+    //                 // for (p1, p2) in perms
+    //                 //     .iter()
+    //                 //     .map(|n| *n)
+    //                 //     .chain(rand_ints.chunks(2).map(|a| (a[0], a[1])))
+    //                 //     .take(hash_rounds)
+    //                 // {
+    //                 //     n ^= n.wrapping_mul(p1 & !1);
+    //                 //     n = n.wrapping_mul(p2 | 1);
+    //                 // }
 
-                    n
-                })
-            })
-            .fold([(0.0f64, 0.0f64); 32], |a, b| {
-                let mut c = [(0.0f64, 0.0f64); 32];
-                for i in 0..32 {
-                    c[i].0 = a[i].0 + (b[i].0 / variant_rounds as f64);
-                    c[i].1 = a[i].1.max(b[i].1);
-                }
-                c
-            });
+    //                 // Add Xor version
+    //                 n += hash_u32(seed, 0);
+    //                 for p in rand_ints.chunks(2).cycle().take(hash_rounds) {
+    //                     n = n.wrapping_add(p[0]);
+    //                     n ^= p[1];
+    //                 }
 
-        // println!("\n{:0.2?}", avalanche_stats);
+    //                 // n = n.reverse_bits();
+    //                 // n = sobol::owen_scramble_slow(n, seed);
+    //                 // n = n.reverse_bits();
 
-        let avg_bias = (&avalanche_stats[1..])
-            .iter()
-            .map(|n| n.0)
-            .fold(0.0f64, |a, b| a + b)
-            / 31.0;
-        let max_bias = (&avalanche_stats[8..])
-            .iter()
-            .map(|n| n.1)
-            .fold(0.0f64, |a, b| a.max(b));
-        let avg_max_bias = (&avalanche_stats[1..])
-            .iter()
-            .map(|n| n.1)
-            .fold(0.0f64, |a, b| a + b)
-            / 31.0;
+    //                 n
+    //             })
+    //         })
+    //         .fold([(0.0f64, 0.0f64); 32], |a, b| {
+    //             let mut c = [(0.0f64, 0.0f64); 32];
+    //             for i in 0..32 {
+    //                 c[i].0 = a[i].0 + (b[i].0 / variant_rounds as f64);
+    //                 c[i].1 = a[i].1.max(b[i].1);
+    //             }
+    //             c
+    //         });
 
-        // Average bias
-        println!(
-            "{} rounds: ({:0.3} | {:0.3})",
-            hash_rounds, avg_bias, avg_max_bias
-        );
-    }
+    //     // println!("\n{:0.2?}", avalanche_stats);
 
-    //------------------------------------------------
+    //     let avg_bias = (&avalanche_stats[1..])
+    //         .iter()
+    //         .map(|n| n.0)
+    //         .fold(0.0f64, |a, b| a + b)
+    //         / 31.0;
+    //     let max_bias = (&avalanche_stats[6..])
+    //         .iter()
+    //         .map(|n| n.1)
+    //         .fold(0.0f64, |a, b| a.max(b));
+    //     let avg_max_bias = (&avalanche_stats[1..])
+    //         .iter()
+    //         .map(|n| n.1)
+    //         .fold(0.0f64, |a, b| a + b)
+    //         / 31.0;
+
+    //     // Average bias
+    //     println!(
+    //         "{} rounds: ({:0.3} | {:0.3} | {:0.3})",
+    //         hash_rounds, avg_bias, avg_max_bias, max_bias
+    //     );
+    // }
+
+    //-------------------------------------------------------------------
 
     const RES: usize = 384;
     const SETS: &[u32] = &[64, 256, 1024, 4096];
-    const DIMS: usize = 1;
     const PLOT_RADIUS: usize = 2;
 
-    let dlist: &[u32] = &[
-        0,
-        1, //2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-          //25, 26, 27, 28, 29,
-    ];
-
-    for di1 in 0..(dlist.len().saturating_sub(DIMS)) {
-        let d1 = dlist[di1];
-
+    for seed in 0..8 {
         let width = RES * SETS.len();
-        let height = RES * DIMS;
+        let height = RES;
         let mut image = vec![0xffu8; width * height * 4];
-        let mut file = File::create(&format!("dim_{:02}.png", di1)).unwrap();
+        let mut file = File::create(&format!("{:02}.png", seed)).unwrap();
 
         let mut plot = |x: usize, y: usize| {
             let min_x = x.saturating_sub(PLOT_RADIUS);
@@ -159,24 +170,17 @@ fn main() {
             }
         };
 
-        for di2 in 0..DIMS {
-            let d2 = dlist[di1 + 1 + di2];
-            let scramble_1 = ((0 + di1 + di2) * 17) as u32;
-            let scramble_2 = ((1 + di1 + di2) * 13) as u32;
-            let scramble_3 = ((2 + di1 + di2) * 31) as u32;
-            for si in 0..SETS.len() {
-                for i in 0..SETS[si] {
-                    // let i = sobol::owen_scramble_u32(i, scramble_3);
-                    // let x = sobol::sample(d1, i);
-                    // let y = sobol::sample(d2, i);
-                    let x = sobol::sample_owen(d1, i, scramble_1);
-                    let y = sobol::sample_owen(d2, i, scramble_2);
+        let scramble_1 = seed * 2;
+        let scramble_2 = seed * 2 + 1;
+        for si in 0..SETS.len() {
+            for i in 0..SETS[si] {
+                let x = sobol::sample_owen(0, i, scramble_1);
+                let y = sobol::sample_owen(1, i, scramble_2);
 
-                    plot(
-                        (x * (RES - 1) as f32) as usize + (RES * si),
-                        (y * (RES - 1) as f32) as usize + (RES * (DIMS - 1 - di2 as usize)),
-                    );
-                }
+                plot(
+                    (x * (RES - 1) as f32) as usize + (RES * si),
+                    (y * (RES - 1) as f32) as usize,
+                );
             }
         }
 
