@@ -3,6 +3,8 @@
 //! Includes variants with random digit scrambling, Cranley-Patterson rotation,
 //! and Owen scrambling.
 
+use super::hash_u32;
+
 // The following `include` provides `MAX_DIMENSION` and `VECTORS`.
 // See the build.rs file for how this included file is generated.
 include!(concat!(env!("OUT_DIR"), "/vectors.inc"));
@@ -113,11 +115,18 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
         (0x79b82526, 0x2dfc1a6b),
         (0xf358b1d0, 0x38743c65),
     ];
-    n = n.wrapping_add(scramble);
     for &(p1, p2) in perms.iter().take(1) {
+        n = n.wrapping_add(scramble);
         n ^= n.wrapping_mul(p1);
         n = n.wrapping_mul(p2);
     }
+
+    // // Add Xor version
+    // n = n.wrapping_add(scramble);
+    // for p in RAND_INTS.chunks(2).cycle().take(32) {
+    //     n = n.wrapping_add(p[0]);
+    //     n ^= p[1];
+    // }
 
     n = n.reverse_bits();
 
@@ -134,17 +143,12 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
 #[allow(dead_code)]
 #[inline]
 pub fn owen_scramble_slow(n: u32, scramble: u32) -> u32 {
-    let n = n ^ hash_u32(scramble, 0);
-
-    let mut new = n;
-    for bit in 0..32 {
-        let i = bit + 1;
-        let mask = if i == 32 {
-            0
-        } else {
-            (1u32 << i).wrapping_sub(1)
-        };
-        new ^= hash_u32((n & !mask), ((i + scramble) * 0x736caf6f)) & mask;
+    let scramble = hash_u32(scramble, 0);
+    let mut new = n ^ scramble;
+    for bit in 0..31 {
+        let high_mask = !(1u32 << (bit + 1)).wrapping_sub(1);
+        let hash = hash_u32((n & high_mask), bit + scramble);
+        new ^= hash & (1 << bit);
     }
     new
 }
@@ -152,17 +156,6 @@ pub fn owen_scramble_slow(n: u32, scramble: u32) -> u32 {
 #[inline(always)]
 fn u32_to_0_1_f32(n: u32) -> f32 {
     n as f32 * (1.0 / (1u64 << 32) as f32)
-}
-
-pub fn hash_u32(n: u32, seed: u32) -> u32 {
-    let mut hash = n;
-    for i in 0..5 {
-        hash ^= seed;
-        hash = hash.wrapping_mul(0x736caf6f);
-        hash ^= hash.wrapping_shr(16);
-    }
-
-    hash
 }
 
 pub const RAND_INTS: &[u32] = &[

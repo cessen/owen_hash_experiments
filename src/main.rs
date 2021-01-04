@@ -73,7 +73,7 @@ fn main() {
     //                 //     n = n.wrapping_mul(rand_ints[i + hash_rounds] | 1);
     //                 // }
 
-    //                 // // // Improved v4 with optimized constants.
+    //                 // // Improved v4 with optimized constants.
     //                 // let perms = [
     //                 //     (0x9ac7ea2a, 0x7d1e78d3), // Only this first pair is optimized.
     //                 //     (0x2ce68764, 0x9dd00551),
@@ -91,16 +91,16 @@ fn main() {
     //                 //     n = n.wrapping_mul(p2 | 1);
     //                 // }
 
-    //                 // Add Xor version
-    //                 n += hash_u32(seed, 0);
-    //                 for p in rand_ints.chunks(2).cycle().take(hash_rounds) {
-    //                     n = n.wrapping_add(p[0]);
-    //                     n ^= p[1];
-    //                 }
+    //                 // // Add Xor version
+    //                 // n += hash_u32(seed, 0);
+    //                 // for p in rand_ints.chunks(2).cycle().take(hash_rounds) {
+    //                 //     n = n.wrapping_add(p[0]);
+    //                 //     n ^= p[1];
+    //                 // }
 
-    //                 // n = n.reverse_bits();
-    //                 // n = sobol::owen_scramble_slow(n, seed);
-    //                 // n = n.reverse_bits();
+    //                 n = n.reverse_bits();
+    //                 n = sobol::owen_scramble_slow(n, seed);
+    //                 n = n.reverse_bits();
 
     //                 n
     //             })
@@ -140,11 +140,11 @@ fn main() {
 
     //-------------------------------------------------------------------
 
-    const RES: usize = 384;
-    const SETS: &[u32] = &[64, 256, 1024, 4096];
+    const RES: usize = 386;
+    const SETS: &[u32] = &[256, 1024, 4096];
     const PLOT_RADIUS: usize = 2;
 
-    for seed in 0..8 {
+    for seed in 0..32 {
         let width = RES * SETS.len();
         let height = RES;
         let mut image = vec![0xffu8; width * height * 4];
@@ -189,15 +189,18 @@ fn main() {
 }
 
 fn hash_u32(n: u32, seed: u32) -> u32 {
-    let mut hash = n;
-    let perms = [0x29aaaaa6, 0x54aad35a, 0x2ab35aaa];
-    for p in perms.iter() {
-        hash = hash.wrapping_mul(*p);
-        hash ^= hash.wrapping_shr(16);
-        hash ^= seed;
-    }
+    // // Fast version.
+    // let mut hash = n ^ seed;
+    // for &p in [0x736caf6f, 0x376508b1, 0x6807fccb, 0xc0cb5ee9, 0xdd46574f].iter() {
+    //     hash = hash.wrapping_mul(p);
+    //     hash ^= hash.wrapping_shr(16);
+    // }
+    // hash
 
-    hash
+    // Slow version, for comparison.
+    let mut bytes = [0u8; 4];
+    &bytes.copy_from_slice(&blake3::hash(&n.to_le_bytes()).as_bytes()[..4]);
+    u32::from_le_bytes(bytes)
 }
 
 fn optimize<T: Copy, F1, F2, F3>(
