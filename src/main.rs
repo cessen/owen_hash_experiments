@@ -50,39 +50,73 @@ fn main() {
     // let perms = [0xd34e2eb8u32, 0xaaa56a52, 0x54899673, 0x1a7f6aac];
     // let perms = [0xcab35168u32, 0xd555a555, 0x77486752, 0x225441c4];
 
-    let avalanche_stats = measure_avalanche(1 << 16, |n| {
-        use sobol::RAND_INTS;
-        let mut n = n;
+    // for hash_rounds in 1..=32 {
+    for hash_rounds in (0..8).map(|n| 1 << n) {
+        let variant_rounds = 64;
+        let avalanche_rounds = (1 << 14);
 
-        // for p in perms.chunks(2).cycle().take(2) {
-        for p in RAND_INTS.chunks(2).cycle().take(2) {
-            n = n.wrapping_mul(p[0] | 1);
-            n ^= p[1];
-        }
+        let avalanche_stats = (0..variant_rounds)
+            .map(|seed| {
+                let rand_ints: Vec<u32> = (0..(hash_rounds * 4))
+                    .map(|_| rand::random::<u32>())
+                    .collect();
 
-        // n = n.reverse_bits();
-        // n = sobol::owen_scramble_u32(n, 0);
-        // // n = sobol::owen_scramble_slow(n, 0);
-        // n = n.reverse_bits();
+                measure_avalanche(avalanche_rounds, |n| {
+                    let mut n = n;
 
-        n
-    });
-    println!("\n{:0.2?}", avalanche_stats);
-    println!(
-        "{}",
-        (&avalanche_stats[8..])
+                    // LK rounds
+                    n += hash_u32(seed, 0);
+                    for i in 0..hash_rounds {
+                        n ^= n.wrapping_mul(rand_ints[i] << 1);
+                    }
+
+                    // Improved v3
+                    // n += hash_u32(seed, 0);
+                    // for p in rand_ints.chunks(2).cycle().take(hash_rounds) {
+                    //     n = n.wrapping_mul(p[0] | 1);
+                    //     n ^= p[1];
+                    // }
+
+                    // n = n.reverse_bits();
+                    // // n = sobol::owen_scramble_u32(n, seed);
+                    // n = sobol::owen_scramble_slow(n, seed);
+                    // n = n.reverse_bits();
+
+                    n
+                })
+            })
+            .fold([(0.0f64, 0.0f64); 32], |a, b| {
+                let mut c = [(0.0f64, 0.0f64); 32];
+                for i in 0..32 {
+                    c[i].0 = a[i].0 + (b[i].0 / variant_rounds as f64);
+                    c[i].1 = a[i].1.max(b[i].1);
+                }
+                c
+            });
+
+        // println!("\n{:0.2?}", avalanche_stats);
+
+        let avg_bias = (&avalanche_stats[1..])
+            .iter()
+            .map(|n| n.0)
+            .fold(0.0f64, |a, b| a + b)
+            / 31.0;
+        let max_bias = (&avalanche_stats[8..])
             .iter()
             .map(|n| n.1)
-            .fold(0.0f64, |a, b| a.max(b))
-    );
-    println!(
-        "{}",
-        avalanche_stats
+            .fold(0.0f64, |a, b| a.max(b));
+        let avg_max_bias = (&avalanche_stats[1..])
             .iter()
             .map(|n| n.1)
             .fold(0.0f64, |a, b| a + b)
-            / 32.0
-    );
+            / 31.0;
+
+        // Average bias
+        println!(
+            "{} rounds: ({:0.3} | {:0.3})",
+            hash_rounds, avg_bias, avg_max_bias
+        );
+    }
 
     //------------------------------------------------
 
@@ -228,7 +262,6 @@ where
     // Accumulate test data.
     let mut stats = [[0u32; 32]; 32];
     for i in 0..rounds {
-        // let b = if i < (rounds / 2) { i } else { rand::random::<u32>() };
         let b = rand::random::<u32>();
         let c = hash(b);
         for bit_in in 0..32 {

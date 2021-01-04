@@ -24,7 +24,7 @@ pub fn sample(dimension: u32, index: u32) -> f32 {
 /// works well.
 #[inline]
 pub fn sample_owen(dimension: u32, index: u32, scramble: u32) -> f32 {
-    u32_to_0_1_f32(owen_scramble_u32(sobol_u32(dimension, index), scramble))
+    u32_to_0_1_f32(owen_scramble_slow(sobol_u32(dimension, index), scramble))
 }
 
 //----------------------------------------------------------------------
@@ -111,15 +111,16 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
 /// slower.
 #[allow(dead_code)]
 #[inline]
-pub fn owen_scramble_slow(mut n: u32, scramble: u32) -> u32 {
-    n = n.reverse_bits();
-    n = n.wrapping_add(hash_u32(scramble, 0));
+pub fn owen_scramble_slow(n: u32, scramble: u32) -> u32 {
+    let n = n ^ hash_u32(scramble, 0);
+
+    let mut new = n;
     for i in 0..31 {
-        let low_mask = (1u32 << i).wrapping_sub(1);
-        let low_bits_hash = hash_u32((n & low_mask) ^ hash_u32(i, 0), 0);
-        n ^= low_bits_hash & !low_mask;
+        let mask = !(1u32 << i + 1).wrapping_sub(1);
+        let hash = hash_u32((n & mask), (i + scramble) * 0x736caf6f);
+        new ^= hash & !mask;
     }
-    n.reverse_bits()
+    new
 }
 
 #[inline(always)]
@@ -127,11 +128,11 @@ fn u32_to_0_1_f32(n: u32) -> f32 {
     n as f32 * (1.0 / (1u64 << 32) as f32)
 }
 
-fn hash_u32(n: u32, seed: u32) -> u32 {
+pub fn hash_u32(n: u32, seed: u32) -> u32 {
     let mut hash = n;
     for i in 0..5 {
+        hash ^= seed;
         hash = hash.wrapping_mul(0x736caf6f);
-        hash ^= RAND_INTS[i] ^ seed;
         hash ^= hash.wrapping_shr(16);
     }
 
