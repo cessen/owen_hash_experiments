@@ -68,7 +68,7 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
 
     let scramble = hash_u32(scramble, 0xa14a177d);
 
-    // // LK version
+    // LK version
     // n = n.wrapping_add(scramble);
     // n ^= n.wrapping_mul(0x6c50b47c);
     // n ^= n.wrapping_mul(0xb82f1e52);
@@ -77,7 +77,7 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
 
     // // LK rounds
     // n = n.wrapping_add(scramble);
-    // for i in 0..4 {
+    // for i in 0..64 {
     //     n ^= n.wrapping_mul(RAND_INTS[i] << 1);
     // }
 
@@ -106,24 +106,46 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     //     n ^= p[1];
     // }
 
-    // Improved version 4
-    // This only really needs one or two rounds, but leaving the constants here
-    // for experimentation.
-    let perms = [
-        (0x9ac7ea2a, 0x7d1e78d3), // Only this first pair is optimized.
-        (0x2ce68764, 0x9dd00551),
-        (0x79b82526, 0x2dfc1a6b),
-        (0xf358b1d0, 0x38743c65),
+    // // Improved version 4
+    // // This version is designed to minimize bias at all costs, which
+    // // isn't actually the behavior of a full per-bit hash.  However,
+    // // it is very fast and probably great for the typical use-cases of
+    // // Owen scrambling.  It only really needs one round, but the
+    // // additional constants are provided for the paranoid.
+    // let perms: &[(u32, u32)] = &[
+    //    // Optimized constants.
+    //     (0xa2d0f65a, 0x22bbe06d),
+    //     (0xeb8e0374, 0x0c8c8841),
+    //     (0xed3a0b98, 0xd1f0ca7b),
+    // ];
+    // n = n.wrapping_add(scramble);
+    // for &(p1, p2) in perms.iter().take(1) {
+    //     n ^= n.wrapping_mul(p1);
+    //     n = n.wrapping_mul(p2);
+    // }
+
+    // Improved version 5
+    // This version is designed to match the behavior of a full per-bit
+    // hash.  It needs two rounds to get reasonably close, and the third
+    // round brings it very close.
+    let perms: &[(u32, u32)] = &[
+        // Optimized constants.
+        (0xfadfb1ea, 0x410237b9),
+        (0x12889fc2, 0xc3708fa3),
+        (0x94951132, 0x8f39c67f),
     ];
-    for &(p1, p2) in perms.iter().take(1) {
-        n = n.wrapping_add(scramble);
+    let seed1 = hash_u32(scramble, 0);
+    let seed2 = hash_u32(scramble, 1);
+    n = n.wrapping_mul(seed1 | 1);
+    for &(p1, p2) in perms.iter().take(3) {
+        n = n.wrapping_add(seed2);
         n ^= n.wrapping_mul(p1);
         n = n.wrapping_mul(p2);
     }
 
     // // Add Xor version
     // n = n.wrapping_add(scramble);
-    // for p in RAND_INTS.chunks(2).cycle().take(32) {
+    // for p in RAND_INTS.chunks(2).cycle().take(100) {
     //     n = n.wrapping_add(p[0]);
     //     n ^= p[1];
     // }
@@ -143,14 +165,18 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
 #[allow(dead_code)]
 #[inline]
 pub fn owen_scramble_slow(n: u32, scramble: u32) -> u32 {
-    let scramble = hash_u32(scramble, 0);
-    let mut new = n ^ scramble;
+    let seed = hash_u32(scramble, 0);
+    let in_bits = n;
+    let mut out_bits = n;
+
+    // Do the Owen scramble.
     for bit in 0..31 {
         let high_mask = !(1u32 << (bit + 1)).wrapping_sub(1);
-        let hash = hash_u32((n & high_mask), bit + scramble);
-        new ^= hash & (1 << bit);
+        let hash = hash_u32(in_bits & high_mask, (seed << 5) | bit);
+        out_bits ^= hash & (1 << bit);
     }
-    new
+
+    out_bits
 }
 
 #[inline(always)]
