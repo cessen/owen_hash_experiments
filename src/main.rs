@@ -117,15 +117,22 @@ fn do_test(with_image: bool) {
                 // // LK rounds
                 // n += hash_u32(seed, 0);
                 // for i in 0..hash_rounds {
-                //     n ^= n.wrapping_mul(rand_ints[i] << 1);
+                //     n ^= n.wrapping_mul(rand_ints[i] & !1);
                 // }
 
-                // // Improved v4
+                // // Improved version 3
                 // n = n.wrapping_add(hash_u32(seed, 0));
-                // for i in 0..hash_rounds {
-                //     n ^= n.wrapping_mul(rand_ints[i] & !1);
-                //     n = n.wrapping_mul(rand_ints[i + hash_rounds] | 1);
+                // for p in rand_ints.chunks(2).take(hash_rounds) {
+                //     n = n.wrapping_mul(p[0] | 1);
+                //     n ^= p[2];
                 // }
+
+                // Improved v4
+                n = n.wrapping_add(hash_u32(seed, 0));
+                for p in rand_ints.chunks(2).take(hash_rounds) {
+                    n ^= n.wrapping_mul(p[0] & !1);
+                    n = n.wrapping_mul(p[1] | 1);
+                }
 
                 // // Improved v4 with optimized constants.
                 // let perms: &[(u32, u32)] = &[
@@ -149,20 +156,20 @@ fn do_test(with_image: bool) {
                 //     n = n.wrapping_mul(rand_ints[i*2+1] | 1);
                 // }
 
-                // Improved v5 with optimized constants.
-                let perms: &[(u32, u32)] = &[
-                    (0xfadfb1ea, 0x410237b9),
-                    (0x12889fc2, 0xc3708fa3),
-                    (0x94951132, 0x8f39c67f),
-                ];
-                let scramble = hash_u32(seed, 0);
-                let scramble2 = hash_u32(seed, 1);
-                n = n.wrapping_mul(scramble | 1);
-                for i in 0..hash_rounds.min(perms.len()) {
-                    n = n.wrapping_add(scramble2);
-                    n ^= n.wrapping_mul(perms[i].0 & !1);
-                    n = n.wrapping_mul(perms[i].1 | 1);
-                }
+                // // Improved v5 with optimized constants.
+                // let perms: &[(u32, u32)] = &[
+                //     (0xfadfb1ea, 0x410237b9),
+                //     (0x12889fc2, 0xc3708fa3),
+                //     (0x94951132, 0x8f39c67f),
+                // ];
+                // let scramble = hash_u32(seed, 0);
+                // let scramble2 = hash_u32(seed, 1);
+                // n = n.wrapping_mul(scramble | 1);
+                // for i in 0..hash_rounds.min(perms.len()) {
+                //     n = n.wrapping_add(scramble2);
+                //     n ^= n.wrapping_mul(perms[i].0 & !1);
+                //     n = n.wrapping_mul(perms[i].1 | 1);
+                // }
 
                 // // Add Xor version
                 // n += hash_u32(seed, 0);
