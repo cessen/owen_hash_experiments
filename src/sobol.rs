@@ -176,6 +176,9 @@ pub fn owen_scramble_slow(n: u32, scramble: u32) -> u32 {
         out_bits ^= hash & (1 << bit);
     }
 
+    // Flip the highest bit as well, based on the seed.
+    out_bits ^= hash_u32(0, (seed << 5) | 31) & (1 << 31);
+
     out_bits
 }
 
