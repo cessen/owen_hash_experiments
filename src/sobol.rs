@@ -106,42 +106,46 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     //     n ^= p[1];
     // }
 
-    // // Improved version 4
-    // // This version is designed to minimize bias at all costs, which
-    // // isn't actually the behavior of a full per-bit hash.  However,
-    // // it is very fast and probably great for the typical use-cases of
-    // // Owen scrambling.  It only really needs one round, but the
-    // // additional constants are provided for the paranoid.
-    // let perms: &[(u32, u32)] = &[
-    //    // Optimized constants.
-    //     (0xa2d0f65a, 0x22bbe06d),
-    //     (0xeb8e0374, 0x0c8c8841),
-    //     (0xed3a0b98, 0xd1f0ca7b),
-    // ];
-    // n = n.wrapping_add(scramble);
-    // for &(p1, p2) in perms.iter().take(1) {
-    //     n ^= n.wrapping_mul(p1);
-    //     n = n.wrapping_mul(p2);
-    // }
-
-    // Improved version 5
-    // This version is designed to match the behavior of a full per-bit
-    // hash.  It needs two rounds to get reasonably close, and the third
-    // round brings it very close.
+    // Improved version 4
+    // This version is designed to minimize bias at all costs, which
+    // isn't actually the behavior of a full per-bit hash.  However,
+    // it is very fast and probably great for the typical use-cases of
+    // Owen scrambling.  It only really needs one round, but the
+    // additional constants are provided for the paranoid.
     let perms: &[(u32, u32)] = &[
-        // Optimized constants.
-        (0xfadfb1ea, 0x410237b9),
-        (0x12889fc2, 0xc3708fa3),
-        (0x94951132, 0x8f39c67f),
+        // Low tree bias
+        (0x3e6cd0b6, 0x403d925b),
+        (0x3ba960f0, 0x1a3c8e01),
+        (0x2e873aa0, 0x69430ee1),
+        // // Low avalanche bias
+        // (0xa2d0f65a, 0x22bbe06d),
+        // (0xeb8e0374, 0x0c8c8841),
+        // (0xed3a0b98, 0xd1f0ca7b),
     ];
-    let seed1 = hash_u32(scramble, 0);
-    let seed2 = hash_u32(scramble, 1);
-    n = n.wrapping_mul(seed1 | 1);
+    n = n.wrapping_add(scramble);
     for &(p1, p2) in perms.iter().take(3) {
-        n = n.wrapping_add(seed2);
         n ^= n.wrapping_mul(p1);
         n = n.wrapping_mul(p2);
     }
+
+    // // Improved version 5
+    // // This version is designed to match the behavior of a full per-bit
+    // // hash.  It needs two rounds to get reasonably close, and the third
+    // // round brings it very close.
+    // let perms: &[(u32, u32)] = &[
+    //     // Optimized constants.
+    //     (0xfadfb1ea, 0x410237b9),
+    //     (0x12889fc2, 0xc3708fa3),
+    //     (0x94951132, 0x8f39c67f),
+    // ];
+    // let seed1 = hash_u32(scramble, 0);
+    // let seed2 = hash_u32(scramble, 1);
+    // n = n.wrapping_mul(seed1 | 1);
+    // for &(p1, p2) in perms.iter().take(3) {
+    //     n = n.wrapping_add(seed2);
+    //     n ^= n.wrapping_mul(p1);
+    //     n = n.wrapping_mul(p2);
+    // }
 
     // // Add Xor version
     // n = n.wrapping_add(scramble);

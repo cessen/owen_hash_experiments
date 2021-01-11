@@ -15,7 +15,7 @@ const STATS_ZERO: Stats = ([[0.0; 32]; 32], [[0.0; 32]; 32]);
 fn main() {
     // Set rayon per-thread stack size, because by default it's stupid small.
     rayon::ThreadPoolBuilder::new()
-        .stack_size(1024 * 1024 * 8)
+        .stack_size(1024 * 1024 * 16)
         .build_global()
         .unwrap();
 
@@ -110,6 +110,7 @@ fn do_test(with_image: bool) {
     println!("{:08x?}", &rand_ints[..8]);
 
     for &hash_rounds in [1, 2, 3, 4, 8, 16, 32, 64, 128, 256].iter() {
+        println!("Rounds: {}", hash_rounds);
         let avalanche_stats = measure_avalanche(
             |n, seed| {
                 let mut n = n;
@@ -136,6 +137,7 @@ fn do_test(with_image: bool) {
                 // }
 
                 // // Improved v4
+                // // n = n.wrapping_mul(hash_u32(seed, 1));
                 // n = n.wrapping_add(hash_u32(seed, 0));
                 // // n ^= hash_u32(seed, 0);
                 // for p in rand_ints.chunks(2).take(hash_rounds) {
@@ -145,15 +147,21 @@ fn do_test(with_image: bool) {
 
                 // // Improved v4 with optimized constants.
                 // let perms: &[(u32, u32)] = &[
-                //     (0xa2d0f65a, 0x22bbe06d),
-                //     (0xeb8e0374, 0x0c8c8841),
-                //     (0xed3a0b98, 0xd1f0ca7b),
+                //     // Low tree bias
+                //     (0x3e6cd0b6, 0x403d925b),
+                //     (0x3ba960f0, 0x1a3c8e01),
+                //     (0x2e873aa0, 0x69430ee1),
+
+                //     // // Low avalanche bias
+                //     // (0xa2d0f65a, 0x22bbe06d),
+                //     // (0xeb8e0374, 0x0c8c8841),
+                //     // (0xed3a0b98, 0xd1f0ca7b),
                 // ];
                 // n = n.wrapping_add(hash_u32(seed, 0));
                 // // n ^= hash_u32(seed, 0);
-                // for i in 0..hash_rounds.min(perms.len()) {
-                //     n ^= n.wrapping_mul(perms[i].0 & !1);
-                //     n = n.wrapping_mul(perms[i].1 | 1);
+                // for p in perms.iter().cycle().take(hash_rounds) {
+                //     n ^= n.wrapping_mul(p.0 & !1);
+                //     n = n.wrapping_mul(p.1 | 1);
                 // }
 
                 // // Improved v5
@@ -168,9 +176,8 @@ fn do_test(with_image: bool) {
 
                 // // Improved v5 with optimized constants.
                 // let perms: &[(u32, u32)] = &[
-                //     (0xfad85de6, 0xf6db595b),
-                //     (0x17ebb038, 0xe100f46f),
-                //     (0x09e4ac1a, 0xe1d8c1ff),
+                //     (0x20dc981a, 0x36411f5b),
+                //     // (0xc1f0f96c, 0xefb39f9d), // A second round actually makes things worse...?
                 // ];
                 // let scramble = hash_u32(seed, 0);
                 // let scramble2 = hash_u32(seed, 1);
@@ -200,7 +207,6 @@ fn do_test(with_image: bool) {
         );
 
         // Print stats.
-        println!("Rounds: {}", hash_rounds);
         print_stats(avalanche_stats);
         println!();
 
@@ -222,12 +228,12 @@ fn do_optimization(rounds: usize) {
         // Generate
         || {
             [
-                0xfad85de6,
-                0xf6db595b,
-                0x17ebb038,
-                0xe100f46f,
-                0x09e4ac1a,
-                0xe1d8c1ff,
+                0x3e6cd0b6,
+                0x403d925b,
+                0x3ba960f0,
+                0x1a3c8e01,
+                0x2e873aa0,
+                0x69430ee1,
                 rand::random::<u32>() & !1,
                 rand::random::<u32>() | 1,
             ]
@@ -242,21 +248,21 @@ fn do_optimization(rounds: usize) {
         },
         // Execute
         |mut a, n, s| {
-            // a = a.wrapping_add(s);
-            // for p in n.chunks(2) {
-            //     a ^= a.wrapping_mul(p[0] & !1);
-            //     a = a.wrapping_mul(p[1] | 1);
-            // }
-            // a
-
-            let s2 = hash_u32(s, 0);
             a = a.wrapping_add(s);
             for p in n.chunks(2) {
-                a = a.wrapping_mul(s2 | 1);
                 a ^= a.wrapping_mul(p[0] & !1);
                 a = a.wrapping_mul(p[1] | 1);
             }
             a
+
+            // let s2 = hash_u32(s, 0);
+            // a = a.wrapping_add(s);
+            // for p in n.chunks(2) {
+            //     a = a.wrapping_mul(s2 | 1);
+            //     a ^= a.wrapping_mul(p[0] & !1);
+            //     a = a.wrapping_mul(p[1] | 1);
+            // }
+            // a
         },
     );
 
@@ -289,12 +295,10 @@ fn hash_u32(n: u32, seed: u32) -> u32 {
     n
 
     // // Slow version, for comparison.
-    // let mut in_bytes = [0u8; 8];
-    // let mut out_bytes = [0u8; 4];
-    // &in_bytes[..4].copy_from_slice(&seed.to_le_bytes());
-    // &in_bytes[4..].copy_from_slice(&n.to_le_bytes());
-    // &out_bytes.copy_from_slice(&blake3::hash(&in_bytes).as_bytes()[..4]);
-    // u32::from_le_bytes(out_bytes)
+    // use std::hash::Hasher;
+    // let mut hasher = siphasher::sip::SipHasher13::new_with_keys(0, seed as u64);
+    // hasher.write_u32(n);
+    // hasher.finish() as u32
 }
 
 fn print_stats(stats: Stats) {
@@ -374,7 +378,7 @@ where
     for round in 0..rounds {
         print!("\rround {}/{}", round, rounds);
         let do_score = |a| {
-            const STAT_ROUNDS: u32 = 1 << 14;
+            const STAT_ROUNDS: u32 = 1 << 18;
             let stats = measure_avalanche(|n, s| execute(n, a, s), STAT_ROUNDS, false);
 
             // Calculate score.
