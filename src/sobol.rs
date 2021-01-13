@@ -106,27 +106,27 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     //     n ^= p[1];
     // }
 
-    // Improved version 4
-    // This version is designed to minimize bias at all costs, which
-    // isn't actually the behavior of a full per-bit hash.  However,
-    // it is very fast and probably great for the typical use-cases of
-    // Owen scrambling.  It only really needs one round, but the
-    // additional constants are provided for the paranoid.
-    let perms: &[(u32, u32)] = &[
-        // Low tree bias
-        (0x3e6cd0b6, 0x403d925b),
-        (0x3ba960f0, 0x1a3c8e01),
-        (0x2e873aa0, 0x69430ee1),
-        // // Low avalanche bias
-        // (0xa2d0f65a, 0x22bbe06d),
-        // (0xeb8e0374, 0x0c8c8841),
-        // (0xed3a0b98, 0xd1f0ca7b),
-    ];
-    n = n.wrapping_add(scramble);
-    for &(p1, p2) in perms.iter().take(3) {
-        n ^= n.wrapping_mul(p1);
-        n = n.wrapping_mul(p2);
-    }
+    // // Improved version 4
+    // // This version is designed to minimize bias at all costs, which
+    // // isn't actually the behavior of a full per-bit hash.  However,
+    // // it is very fast and probably great for the typical use-cases of
+    // // Owen scrambling.  It only really needs one round, but the
+    // // additional constants are provided for the paranoid.
+    // let perms: &[(u32, u32)] = &[
+    //     // Low tree bias
+    //     (0x3e6cd0b6, 0x403d925b),
+    //     (0x3ba960f0, 0x1a3c8e01),
+    //     (0x2e873aa0, 0x69430ee1),
+    //     // // Low avalanche bias
+    //     // (0xa2d0f65a, 0x22bbe06d),
+    //     // (0xeb8e0374, 0x0c8c8841),
+    //     // (0xed3a0b98, 0xd1f0ca7b),
+    // ];
+    // n = n.wrapping_add(scramble);
+    // for &(p1, p2) in perms.iter().take(3) {
+    //     n ^= n.wrapping_mul(p1);
+    //     n = n.wrapping_mul(p2);
+    // }
 
     // // Improved version 5
     // // This version is designed to match the behavior of a full per-bit
@@ -153,6 +153,28 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     //     n = n.wrapping_add(p[0]);
     //     n ^= p[1];
     // }
+
+    //-----------------------------------------------
+    // Ones to actually use.
+
+    // Very fast, pretty good quality.
+    n = n.wrapping_add(scramble);
+    n ^= n.wrapping_mul(0x3354734a);
+    n = n.wrapping_add(n << 2);
+    n ^= n.wrapping_mul(scramble & !1);
+
+    // // Fast, good quality.
+    // n ^= n.wrapping_mul(0x08fc174a);
+    // n = n.wrapping_add(scramble);
+    // n ^= n.wrapping_mul(scramble & !1);
+    // n = n.wrapping_mul(0xa16b9fb5);
+
+    // // Pretty fast, very good quality.
+    // n = n.wrapping_add(scramble);
+    // n ^= n.wrapping_mul(0x046e2f26);
+    // n = n.wrapping_mul(scramble | 1);
+    // n ^= n.wrapping_mul(0x75d5ab5c);
+    // n = n.wrapping_mul(0xdc4d0c55);
 
     n = n.reverse_bits();
 

@@ -38,6 +38,60 @@ impl HashOp {
         }
     }
 
+    pub fn new_constant(&self) -> HashOp {
+        match *self {
+            HashOp::Nop => *self,
+
+            HashOp::Xor(c) => {
+                if c == 0 {
+                    *self
+                } else {
+                    HashOp::Xor(random::<u32>())
+                }
+            }
+
+            HashOp::Add(c) => {
+                if c == 0 {
+                    *self
+                } else {
+                    HashOp::Add(random::<u32>())
+                }
+            }
+
+            HashOp::Mul(c) => {
+                if c == 0 {
+                    *self
+                } else {
+                    HashOp::Mul(random::<u32>() | 1)
+                }
+            }
+
+            HashOp::ShlXor(c) => {
+                if c == 0 {
+                    *self
+                } else {
+                    HashOp::ShlXor((random::<u32>() % 31) + 1)
+                }
+            }
+
+            HashOp::ShlAdd(c) => {
+                if c == 0 {
+                    *self
+                } else {
+                    HashOp::ShlAdd((random::<u32>() % 31) + 1)
+                }
+            }
+
+            HashOp::MulXor(c) => {
+                if c == 0 {
+                    *self
+                } else {
+                    HashOp::MulXor(random::<u32>() & !1)
+                }
+            }
+        }
+    }
+
     pub fn exec(&self, x: u32, seed: u32) -> u32 {
         match *self {
             HashOp::Nop => x,

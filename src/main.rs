@@ -42,7 +42,7 @@ fn main() {
         do_test(args.is_present("test_image"));
     } else if args.is_present("optimize") {
         let rounds = args.value_of("number").unwrap_or("2500").parse().unwrap();
-        do_optimization(rounds);
+        do_optimization(rounds, args.is_present("test_image"));
     } else {
         const SETS: &[u32] = &[256, 1024, 4096];
         const PLOT_RADIUS: usize = 2;
@@ -204,12 +204,29 @@ fn do_test(with_image: bool) {
                 // n = n.reverse_bits();
 
                 n = exec_hash_slice(
+                    // Very fast, pretty good quality.
+                    // &[
+                    //     HashOp::Add(0),
+                    //     HashOp::MulXor(0x3354734a),
+                    //     HashOp::ShlAdd(2),
+                    //     HashOp::MulXor(0),
+                    // ],
+
+                    // // Fast, good quality.
+                    // &[
+                    //     HashOp::MulXor(0x08fc174a),
+                    //     HashOp::Add(0),
+                    //     HashOp::MulXor(0),
+                    //     HashOp::Mul(0xa16b9fb5),
+                    // ],
+
+                    // Pretty fast, very good quality.
                     &[
-                        HashOp::Nop,
-                        HashOp::MulXor(4294213020),
                         HashOp::Add(0),
-                        HashOp::MulXor(0),
-                        HashOp::ShlAdd(19),
+                        HashOp::MulXor(0x046e2f26),
+                        HashOp::Mul(0),
+                        HashOp::MulXor(0x75d5ab5c),
+                        HashOp::Mul(0xdc4d0c55),
                     ],
                     n,
                     seed,
@@ -235,7 +252,7 @@ fn do_test(with_image: bool) {
     }
 }
 
-fn do_optimization(rounds: usize) {
+fn do_optimization(rounds: usize, with_image: bool) {
     let candidates = optimize(
         rounds,
         8, // Simultaneous candidates to use.
@@ -243,26 +260,26 @@ fn do_optimization(rounds: usize) {
         // Generate
         || {
             [
-                HashOp::gen_random(),
-                HashOp::gen_random(),
-                HashOp::gen_random(),
-                HashOp::gen_random(),
+                HashOp::Add(0),
+                HashOp::MulXor(123).new_constant(),
+                HashOp::ShlAdd(2),
+                HashOp::MulXor(0),
             ]
         },
         // Mutate
         |n| {
             [
-                HashOp::gen_random(),
-                HashOp::gen_random(),
-                HashOp::gen_random(),
-                HashOp::gen_random(),
+                n[0].new_constant(),
+                n[1].new_constant(),
+                n[2].new_constant(),
+                n[3].new_constant(),
             ]
         },
         // Execute
         |mut a, n, s| exec_hash_slice(&n[..], a, s),
     );
 
-    for c in candidates.iter() {
+    for (i, c) in candidates.iter().enumerate() {
         println!("Score: {}", c.1);
         print!("&[");
         for p in c.0.iter() {
@@ -271,6 +288,13 @@ fn do_optimization(rounds: usize) {
         println!("]");
         print_stats(c.2);
         println!();
+
+        if with_image {
+            write_avalanche_image(
+                c.2,
+                &mut File::create(&format!("candidate_{:02}.png", i + 1)).unwrap(),
+            );
+        }
     }
 }
 
@@ -370,7 +394,7 @@ where
     F3: Fn(u32, T, u32) -> u32 + Sync, // (input, hash_constants, seed) -> hash
 {
     let do_score = |a| {
-        const STAT_ROUNDS: u32 = 1 << 22;
+        const STAT_ROUNDS: u32 = 1 << 18;
         let stats = measure_avalanche(|n, s| execute(n, a, s), STAT_ROUNDS, false);
 
         // Calculate score.
@@ -380,7 +404,7 @@ where
         for x in 0..32 {
             for y in (x + 1)..32 {
                 let diff = stats.1[x][y] - 0.5;
-                score += if diff.abs() > 0.25 { 1.0 } else { 0.0 };
+                score += if diff.abs() > 0.35 { 1.0 } else { 0.0 };
                 // score += diff * diff;
             }
         }
@@ -468,7 +492,7 @@ where
     let data = (0..loop_rounds)
         .into_par_iter()
         .map(|lr| {
-            if print_progress && (lr % (loop_rounds / 53)) == 0 {
+            if print_progress && (lr % (loop_rounds / 53).max(1)) == 0 {
                 let stdout = std::io::stdout();
                 let mut out = stdout.lock();
                 out.write_all(b".");
