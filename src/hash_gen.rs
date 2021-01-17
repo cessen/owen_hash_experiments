@@ -159,53 +159,12 @@ impl HashOp {
     }
 }
 
+/// Runs a slice of `HashOp`s as a hash function on the given
+/// value with the given seed.
 pub fn exec_hash_slice(hash_ops: &[HashOp], x: u32, seed: u32) -> u32 {
     let mut x = x;
     for op in hash_ops.iter() {
         x = op.exec(x, seed);
     }
     x
-}
-
-/// Encodes the structure (but not the contents) of a hash slice as an integer.
-pub fn hash_slice_to_bits(hash_ops: &[HashOp]) -> u128 {
-    let mut n = 0u128;
-
-    for op in hash_ops.iter().rev() {
-        n <<= 4;
-        let op_enc = match *op {
-            HashOp::Nop => continue, // Skip no-ops.
-            HashOp::Xor(c) => 1 | if c == 0 { 0 } else { 0b1000 },
-            HashOp::Add(c) => 2 | if c == 0 { 0 } else { 0b1000 },
-            HashOp::Mul(c) => 3 | if c == 0 { 0 } else { 0b1000 },
-            HashOp::ShlXor(c) => 4 | if c == 0 { 0 } else { 0b1000 },
-            HashOp::ShlAdd(c) => 5 | if c == 0 { 0 } else { 0b1000 },
-            HashOp::MulXor(c) => 6 | if c == 0 { 0 } else { 0b1000 },
-        };
-        n |= op_enc;
-    }
-
-    n
-}
-
-pub fn print_encoded_hash_slice(n: u128) {
-    let mut n = n;
-
-    print!("&[");
-    while (n & 0b1111) != 0 {
-        let op_number = n & 0b111;
-        let constant = (n >> 3) & 1;
-        match op_number {
-            1 => print!("HashOp::Xor({}), ", constant),
-            2 => print!("HashOp::Add({}), ", constant),
-            3 => print!("HashOp::Mul({}), ", constant),
-            4 => print!("HashOp::ShlXor({}), ", constant),
-            5 => print!("HashOp::ShlAdd({}), ", constant),
-            6 => print!("HashOp::MulXor({}), ", constant),
-            _ => panic!(),
-        }
-
-        n >>= 4;
-    }
-    println!("]");
 }

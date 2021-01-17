@@ -1,22 +1,18 @@
 #![allow(unused)]
 
-mod halton;
 mod hash_gen;
-mod r2;
 mod sobol;
+mod stats;
 
-use hash_gen::{exec_hash_slice, HashOp};
-use rayon::prelude::*;
 use std::fs::File;
 use std::io::Write;
 
-const RESOLUTION: usize = 320;
-
-type Stats = ([[f64; 32]; 32], [[f64; 32]; 32]);
-const STATS_ZERO: Stats = ([[0.0; 32]; 32], [[0.0; 32]; 32]);
+use hash_gen::{exec_hash_slice, HashOp};
+use stats::{measure_stats, print_stats, write_stats_image, Stats, STATS_ZERO};
 
 fn main() {
-    // Set rayon per-thread stack size, because by default it's stupid small.
+    // Set rayon per-thread stack size, because by default it's too small
+    // for what we're doing.
     rayon::ThreadPoolBuilder::new()
         .stack_size(1024 * 1024 * 16)
         .build_global()
@@ -27,9 +23,7 @@ fn main() {
         .version("0.123456789")
         .about("")
         .arg(clap::Arg::with_name("test").long("test"))
-        .arg(clap::Arg::with_name("test_image").long("img"))
-        .arg(clap::Arg::with_name("optimize").long("opt"))
-        .arg(clap::Arg::with_name("opt_struct").long("struct"))
+        .arg(clap::Arg::with_name("search").long("search"))
         .arg(clap::Arg::with_name("reference").long("ref"))
         .arg(
             clap::Arg::with_name("number")
@@ -40,69 +34,32 @@ fn main() {
 
     // Pick what to do based on command line arguments.
     if args.is_present("test") {
-        do_test(args.is_present("test_image"));
-    } else if args.is_present("optimize") {
-        let rounds = args.value_of("number").unwrap_or("2500").parse().unwrap();
-        do_optimization(rounds, args.is_present("test_image"));
-    } else if args.is_present("opt_struct") {
-        let rounds = args.value_of("number").unwrap_or("2500").parse().unwrap();
-        do_opt_struct(rounds, args.is_present("test_image"));
+        let rounds = args
+            .value_of("number")
+            .unwrap_or("4000000")
+            .parse()
+            .unwrap();
+        do_test(rounds, true);
+    } else if args.is_present("search") {
+        let rounds = args.value_of("number").unwrap_or("10000").parse().unwrap();
+        do_hash_search(rounds, true);
     } else {
-        const SETS: &[u32] = &[256, 1024, 4096];
-        const PLOT_RADIUS: usize = 2;
-
+        let image_resolution = 320;
         let image_count = args.value_of("number").unwrap_or("4").parse().unwrap();
+        let sample_function = if args.is_present("reference") {
+            |i, d, seed| sobol::sample_owen_reference(i, d, seed)
+        } else {
+            |i, d, seed| sobol::sample_owen_fast(i, d, seed)
+        };
 
         for seed in 0..image_count {
-            let width = RESOLUTION * SETS.len();
-            let height = RESOLUTION;
-            let mut image = vec![0xffu8; width * height * 4];
-            let mut file = File::create(&format!("{:02}.png", seed)).unwrap();
-
-            let mut plot = |x: usize, y: usize| {
-                let min_x = x.saturating_sub(PLOT_RADIUS);
-                let min_y = y.saturating_sub(PLOT_RADIUS);
-                let max_x = (x + PLOT_RADIUS + 1).min(width);
-                let max_y = (y + PLOT_RADIUS + 1).min(height);
-
-                for yy in min_y..max_y {
-                    for xx in min_x..max_x {
-                        let x2 = x as isize - xx as isize;
-                        let y2 = y as isize - yy as isize;
-                        if (((x2 * x2) + (y2 * y2)) as f64).sqrt() <= PLOT_RADIUS as f64 {
-                            image[(yy * width + xx) * 4] = 0x00;
-                            image[(yy * width + xx) * 4 + 1] = 0x00;
-                            image[(yy * width + xx) * 4 + 2] = 0x00;
-                            image[(yy * width + xx) * 4 + 3] = 0xFF;
-                        }
-                    }
-                }
-            };
-
-            let scramble_1 = seed * 2;
-            let scramble_2 = seed * 2 + 1;
-            for si in 0..SETS.len() {
-                for i in 0..SETS[si] {
-                    let (x, y) = if args.is_present("reference") {
-                        (
-                            sobol::sample_owen_slow(0, i, scramble_1),
-                            sobol::sample_owen_slow(1, i, scramble_2),
-                        )
-                    } else {
-                        (
-                            sobol::sample_owen(0, i, scramble_1),
-                            sobol::sample_owen(1, i, scramble_2),
-                        )
-                    };
-
-                    plot(
-                        (x * (RESOLUTION - 1) as f32) as usize + (RESOLUTION * si),
-                        (y * (RESOLUTION - 1) as f32) as usize,
-                    );
-                }
-            }
-
-            png_encode_mini::write_rgba_from_u8(&mut file, &image, width as u32, height as u32);
+            generate_samples_image(
+                sample_function,
+                image_resolution,
+                &[256, 1024, 4096],
+                seed,
+                &format!("{:02}.png", seed),
+            );
         }
     }
 }
@@ -111,253 +68,200 @@ fn main() {
 // SUB-COMMANDS
 //=======================================================================
 
-fn do_test(with_image: bool) {
-    let rand_ints: Vec<u32> = (0..4096).map(|_| rand::random::<u32>()).collect();
+/// Generates a bunch of 2d Owen-scrambled Sobol points, and writes them
+/// to an image.
+fn generate_samples_image<F>(
+    sample: F,
+    resolution: usize,
+    point_counts: &[u32], // A list of point-counts, which will be drawn sequentially in the image, left-to-right.
+    seed: u32,
+    image_path: &str,
+) where
+    F: Fn(u32, u32, u32) -> f32, // (sample_index, dimension, seed) -> coordinate
+{
+    const POINT_RADIUS: usize = 2;
 
-    println!("{:08x?}", &rand_ints[..8]);
+    let width = resolution * point_counts.len();
+    let height = resolution;
+    let mut image = vec![0xffu8; width * height * 4];
 
-    for &hash_rounds in [1, 2, 3, 4, 8, 16, 32, 64, 128, 256].iter() {
-        println!("Rounds: {}", hash_rounds);
-        let avalanche_stats = measure_avalanche(
-            |n, seed| {
-                let mut n = n;
+    // Draws a point on the image.
+    let mut plot = |x: usize, y: usize| {
+        let min_x = x.saturating_sub(POINT_RADIUS);
+        let min_y = y.saturating_sub(POINT_RADIUS);
+        let max_x = (x + POINT_RADIUS + 1).min(width);
+        let max_y = (y + POINT_RADIUS + 1).min(height);
 
-                // // New hotess
-                // n = n.wrapping_add(seed);
-                // n ^= n.wrapping_mul(rand_ints[0] & 0xfffffffe);
-                // n = n.wrapping_mul(seed | 1);
-                // for i in 0..(hash_rounds - 1.min(hash_rounds)) {
-                //     n ^= n.wrapping_mul(rand_ints[i * 2 + 1] & 0xfffffffe);
-                //     n = n.wrapping_mul(rand_ints[i * 2 + 2] | 1);
-                // }
+        for yy in min_y..max_y {
+            for xx in min_x..max_x {
+                let x2 = x as isize - xx as isize;
+                let y2 = y as isize - yy as isize;
+                if (((x2 * x2) + (y2 * y2)) as f64).sqrt() <= POINT_RADIUS as f64 {
+                    image[(yy * width + xx) * 4] = 0x00;
+                    image[(yy * width + xx) * 4 + 1] = 0x00;
+                    image[(yy * width + xx) * 4 + 2] = 0x00;
+                    image[(yy * width + xx) * 4 + 3] = 0xFF;
+                }
+            }
+        }
+    };
 
-                // // LK version
-                // n ^= n.wrapping_mul(0x6c50b47c);
-                // n ^= n.wrapping_mul(0xb82f1e52);
-                // n ^= n.wrapping_mul(0xc7afe638);
-                // n ^= n.wrapping_mul(0x8d22f6e6);
-
-                // // LK rounds
-                // n += hash_u32(seed, 0);
-                // // n ^= hash_u32(seed, 0);
-                // for i in 0..hash_rounds {
-                //     n ^= n.wrapping_mul(rand_ints[i] & !1);
-                // }
-
-                // // Improved version 3
-                // n = n.wrapping_add(hash_u32(seed, 0));
-                // for p in rand_ints.chunks(2).take(hash_rounds) {
-                //     n = n.wrapping_mul(p[0] | 1);
-                //     n ^= p[1];
-                // }
-
-                // // Improved v4
-                // // n = n.wrapping_mul(hash_u32(seed, 1));
-                // n = n.wrapping_add(hash_u32(seed, 0));
-                // // n ^= hash_u32(seed, 0);
-                // for p in rand_ints.chunks(2).take(hash_rounds) {
-                //     n ^= n.wrapping_mul(p[0] & !1);
-                //     n = n.wrapping_mul(p[1] | 1);
-                // }
-
-                // // Improved v4 with optimized constants.
-                // let perms: &[(u32, u32)] = &[
-                //     // Low tree bias
-                //     (0x3e6cd0b6, 0x403d925b),
-                //     (0x3ba960f0, 0x1a3c8e01),
-                //     (0x2e873aa0, 0x69430ee1),
-
-                //     // // Low avalanche bias
-                //     // (0xa2d0f65a, 0x22bbe06d),
-                //     // (0xeb8e0374, 0x0c8c8841),
-                //     // (0xed3a0b98, 0xd1f0ca7b),
-                // ];
-                // n = n.wrapping_add(hash_u32(seed, 0));
-                // // n ^= hash_u32(seed, 0);
-                // for p in perms.iter().cycle().take(hash_rounds) {
-                //     n ^= n.wrapping_mul(p.0 & !1);
-                //     n = n.wrapping_mul(p.1 | 1);
-                // }
-
-                // // Improved v5
-                // let scramble = hash_u32(seed, 0);
-                // let scramble2 = hash_u32(seed, 1);
-                // n = n.wrapping_add(scramble);
-                // for i in 0..hash_rounds {
-                //     n = n.wrapping_mul(scramble2 | 1);
-                //     n ^= n.wrapping_mul(rand_ints[i*2] & !1);
-                //     n = n.wrapping_mul(rand_ints[i*2+1] | 1);
-                // }
-
-                // // Improved v5 with optimized constants.
-                // let perms: &[(u32, u32)] = &[
-                //     (0x20dc981a, 0x36411f5b),
-                //     // (0xc1f0f96c, 0xefb39f9d), // A second round actually makes things worse...?
-                // ];
-                // let scramble = hash_u32(seed, 0);
-                // let scramble2 = hash_u32(seed, 1);
-                // n = n.wrapping_add(scramble);
-                // for i in 0..hash_rounds.min(perms.len()) {
-                //     n = n.wrapping_mul(scramble2 | 1);
-                //     n ^= n.wrapping_mul(perms[i].0 & !1);
-                //     n = n.wrapping_mul(perms[i].1 | 1);
-                // }
-
-                // // Add Xor version
-                // // n = n.wrapping_mul(hash_u32(seed, 0) | 1);
-                // n += hash_u32(seed, 0);
-                // for p in rand_ints.chunks(2).cycle().take(hash_rounds) {
-                //     n = n.wrapping_add(p[0]);
-                //     n ^= p[1];
-                // }
-
-                // n = n.reverse_bits();
-                // n = sobol::owen_scramble_slow(n, seed);
-                // n = n.reverse_bits();
-
-                n = exec_hash_slice(
-                    // &[
-                    //     HashOp::Add(0),
-                    //     HashOp::MulXor(1440659114),
-                    //     HashOp::Mul(0),
-                    // ],
-
-                    // // Very fast, pretty good quality.
-                    // &[
-                    //     HashOp::Add(0),
-                    //     HashOp::MulXor(0x3354734a),
-                    //     HashOp::ShlAdd(2),
-                    //     HashOp::MulXor(0),
-                    // ],
-
-                    // // Fast, good quality.
-                    // &[
-                    //     HashOp::Add(0),
-                    //     HashOp::MulXor(0xd270bd2a),
-                    //     HashOp::Mul(0),
-                    //     HashOp::MulXor(0xa942c26c),
-                    // ],
-
-                    // Pretty fast, very good quality.
-                    &[
-                        HashOp::Add(0),
-                        HashOp::MulXor(0x046e2f26),
-                        HashOp::Mul(0),
-                        HashOp::MulXor(0x75d5ab5c),
-                        HashOp::Mul(0xdc4d0c55),
-                    ],
-                    n,
-                    seed,
-                );
-
-                n
-            },
-            1 << 23,
-            true,
-        );
-
-        // Print stats.
-        print_stats(avalanche_stats);
-        println!();
-
-        // Write avalanche image.
-        if with_image {
-            write_avalanche_image(
-                avalanche_stats,
-                &mut File::create(&format!("rounds_{:04}.png", hash_rounds)).unwrap(),
+    // Plot the points at the various point counts.
+    for (set_idx, &point_count) in point_counts.iter().enumerate() {
+        for i in 0..point_count {
+            let x = sample(i, 0, seed);
+            let y = sample(i, 1, seed + 1);
+            plot(
+                (x * (resolution - 1) as f32) as usize + (resolution * set_idx),
+                (y * (resolution - 1) as f32) as usize,
             );
         }
     }
+
+    let mut file = File::create(image_path).unwrap();
+    png_encode_mini::write_rgba_from_u8(&mut file, &image, width as u32, height as u32);
 }
 
-fn do_optimization(rounds: usize, with_image: bool) {
+/// Tests the statistics of a hash, and prints the results to the console.
+/// Optionally writes a png image as well.
+fn do_test(rounds: u32, with_image: bool) {
+    let stats = measure_stats(
+        |n, seed| {
+            let mut n = n;
+
+            // Reference Owen scramble implementation, performed on
+            // reversed bits.
+            n = n.reverse_bits();
+            n = sobol::owen_scramble_reference_u32(n, seed);
+            n = n.reverse_bits();
+
+            // // Original Laine-Karras hash.
+            // n = n.wrapping_add(seed);
+            // n ^= n.wrapping_mul(0x6c50b47c);
+            // n ^= n.wrapping_mul(0xb82f1e52);
+            // n ^= n.wrapping_mul(0xc7afe638);
+            // n ^= n.wrapping_mul(0x8d22f6e6);
+
+            // // Improved version 2.
+            // // From https://psychopath.io/post/2021_01_02_sobol_sampling_take_2
+            // n = n.wrapping_add(seed);
+            // n ^= 0xdc967795;
+            // n = n.wrapping_mul(0x97b756bb);
+            // n ^= 0x866350b1;
+            // n = n.wrapping_mul(0x9e3779cd);
+
+            // // Run a generated hash.  Note: a constant of zero in an op
+            // // indicates using the seed.
+            // n = exec_hash_slice(
+            //     // Fast, reasonable quality.
+            //     &[
+            //         HashOp::Add(0),
+            //         HashOp::MulXor(0x3354734a),
+            //         HashOp::ShlAdd(2),
+            //         HashOp::MulXor(0),
+            //     ],
+            //     // // Medium-fast, good quality.
+            //     // &[
+            //     //     HashOp::Add(0),
+            //     //     HashOp::MulXor(0x046e2f26),
+            //     //     HashOp::Mul(0),
+            //     //     HashOp::MulXor(0x75d5ab5c),
+            //     //     HashOp::Mul(0xdc4d0c55),
+            //     // ],
+            //     n,
+            //     seed,
+            // );
+
+            n
+        },
+        rounds,
+        true,
+    );
+
+    // Print stats.
+    print_stats(stats);
+    println!();
+
+    // Write avalanche image.
+    if with_image {
+        write_stats_image(stats, &mut File::create("stats.png").unwrap());
+    }
+}
+
+/// Randomly searches for better hashes, and prints the result to console.
+/// Optionally also saves statistics png images of the top produced hashes.
+///
+/// All this does is generate hashes randomly, and keep the highest-scoring
+/// ones.  No fancy mutation approaches or whatnot, unfortunately.
+fn do_hash_search(rounds: usize, with_image: bool) {
     use std::collections::HashMap;
 
     const HASH_OP_COUNT: usize = 3;
     const CANDIDATE_COUNT: usize = 8;
     const STAT_ROUNDS: u32 = 1 << 18;
-    type MyHash = [HashOp; HASH_OP_COUNT];
 
-    let mutate = |hash: MyHash| {
-        let mut new_hash = [HashOp::Nop; HASH_OP_COUNT];
-        for i in 0..hash.len() {
-            new_hash[i] = hash[i].new_constant();
-        }
-        new_hash
-    };
-
+    // Method to use to generate new hashes.
     let generate = || {
-        // let mut hash = [HashOp::Nop; HASH_OP_COUNT];
-        // let mut any_mul_seed = false;
-        // while !any_mul_seed {
-        //     for i in 0..HASH_OP_COUNT {
-        //         hash[i] = HashOp::gen_random();
-        //         any_mul_seed |= hash[i].uses_mul_and_seed();
-        //     }
-        // }
-        // hash
+        // Generate a totally random hash, but ensuring at least one
+        // op that involves multiplying by the seed (which seems to be critical
+        // to all decent hashes).
+        let mut hash = [HashOp::Nop; 8];
+        let mut any_mul_seed = false;
+        while !any_mul_seed {
+            for i in 0..hash.len() {
+                hash[i] = HashOp::gen_random();
+                any_mul_seed |= hash[i].uses_mul_and_seed();
+            }
+        }
+        hash
 
-        [
-            HashOp::Add(0),
-            HashOp::MulXor(1).new_constant(),
-            HashOp::Mul(0),
-        ]
-
-        // mutate([HashOp::MulXor(0), HashOp::MulXor(3675659098), HashOp::Add(0), HashOp::gen_random()])
-    };
-
-    let do_stats_and_score = |hash: MyHash| {
-        let stats = measure_avalanche(|n, s| exec_hash_slice(&hash[..], n, s), STAT_ROUNDS, false);
-        (stats, score_stats(&stats))
+        // // Start with an existing hash, and just generate a new random
+        // // constant for one of the operations.
+        // [
+        //     HashOp::Add(0),
+        //     HashOp::MulXor(0x046e2f26),
+        //     HashOp::Mul(0x75d5ab5b).new_constant(),
+        //     HashOp::MulXor(0),
+        //     HashOp::Mul(0xdc4d0c55),
+        // ]
     };
 
     //----------------
     // Do actual optimization process.
     //----------------
 
-    let mut all_configs = HashMap::new();
-    let mut current: Vec<_> = (0..CANDIDATE_COUNT)
+    let mut candidates: Vec<_> = (0..CANDIDATE_COUNT)
         .map(|_| (generate(), std::f64::INFINITY, STATS_ZERO))
         .collect();
-    let last_idx = current.len() - 1;
+    let last_idx = candidates.len() - 1;
 
     println!();
     for round in 0..rounds {
         print!("\rround {}/{}", round, rounds);
         std::io::stdout().flush();
 
-        let new = generate();
-        let (stats, score) = do_stats_and_score(new);
-        if score < current[last_idx].1 {
-            current[last_idx] = (new, score, stats);
-            current.sort_unstable_by(|x, y| x.1.partial_cmp(&y.1).unwrap());
-        }
+        // Generate and score a new hash.
+        let new_hash = generate();
+        let (stats, score) = {
+            let stats = measure_stats(
+                |n, seed| exec_hash_slice(&new_hash[..], n, seed),
+                STAT_ROUNDS,
+                false,
+            );
+            (stats, score_stats(&stats))
+        };
 
-        let config_score = all_configs
-            .entry(hash_gen::hash_slice_to_bits(&new[..]))
-            .or_insert((0u32, 0.0f64));
-        config_score.0 += 1;
-        config_score.1 += score;
+        // If it beats the current lowest-scoring hash, replace it.
+        if score < candidates[last_idx].1 {
+            candidates[last_idx] = (new_hash, score, stats);
+            candidates.sort_unstable_by(|x, y| x.1.partial_cmp(&y.1).unwrap());
+        }
     }
     println!();
 
-    //----------------
-
-    let mut configs: Vec<_> = all_configs
-        .iter()
-        .map(|(k, v)| (k, v.0, v.1 / v.0 as f64))
-        .collect();
-    configs.sort_unstable_by(|x, y| x.2.partial_cmp(&y.2).unwrap());
-    configs.truncate(CANDIDATE_COUNT);
-    for &(hash, count, score) in configs.iter() {
-        println!("{} | {}", count, score);
-        hash_gen::print_encoded_hash_slice(*hash);
-        println!("");
-    }
-
-    println!("--------\n");
-
-    for (i, c) in current.iter().enumerate() {
+    // Print out the top hashes, and (optionally) write statistics png images
+    // for them as well.
+    for (i, c) in candidates.iter().enumerate() {
         println!("Score: {}", c.1);
 
         print!("&[");
@@ -369,7 +273,7 @@ fn do_optimization(rounds: usize, with_image: bool) {
         println!();
 
         if with_image {
-            write_avalanche_image(
+            write_stats_image(
                 c.2,
                 &mut File::create(&format!("candidate_{:02}.png", i + 1)).unwrap(),
             );
@@ -377,32 +281,15 @@ fn do_optimization(rounds: usize, with_image: bool) {
     }
 }
 
-fn do_opt_struct(rounds: usize, with_image: bool) {
-    let structures = find_good_hash_structure(
-        5, // Op count
-        8, // Simultaneous candidate count
-        rounds,
-    );
-
-    for &(score, s) in structures.iter() {
-        println!("{}", score);
-        hash_gen::print_encoded_hash_slice(s);
-        println!();
-    }
-
-    return;
-}
-
 //=======================================================================
 // UTILS
 //=======================================================================
 
 fn hash_u32(n: u32, seed: u32) -> u32 {
-    // Fast version.
+    // Seeding.  This is totally hacked together, but it seems to work well.
+    let mut n = 1 + n.wrapping_add(seed.wrapping_mul(0x736caf6f));
+
     // From https://github.com/skeeto/hash-prospector
-    // It's a fantastic hash function, but the seeding is my own bespoke
-    // approach, which I don't fully trust.
-    let mut n = n.wrapping_add(seed.wrapping_mul(0x736caf6f)); // Seeding.
     n ^= n >> 17;
     n = n.wrapping_mul(0xed5ad4bb);
     n ^= n >> 11;
@@ -410,96 +297,32 @@ fn hash_u32(n: u32, seed: u32) -> u32 {
     n ^= n >> 15;
     n = n.wrapping_mul(0x31848bab);
     n ^= n >> 14;
+
     n
-
-    // // Slow version, for comparison.
-    // use std::hash::Hasher;
-    // let mut hasher = siphasher::sip::SipHasher13::new_with_keys(0, seed as u64);
-    // hasher.write_u32(n);
-    // hasher.finish() as u32
 }
 
-fn print_stats(stats: Stats) {
-    // Calculate reduced stats
-    let mut reduced_stats = [0.0f64; 32]; // (avg, max)
-    for bit_in in 0..32 {
-        for bit_out in (bit_in + 1)..32 {
-            reduced_stats[bit_out] += stats.0[bit_in][bit_out] / bit_out as f64;
-        }
-    }
-
-    // Calculate average bias.
-    let mut avg_bias = 0.0;
-    for bit_in in 0..32 {
-        for bit_out in (bit_in + 1)..32 {
-            avg_bias += stats.0[bit_in][bit_out];
-        }
-    }
-    avg_bias /= (32 * 31 / 2) as f64;
-
-    // Print info.
-    // println!("{:0.2?}", reduced_stats);
-    println!("Average bias: {:0.3}", avg_bias);
-}
-
-fn write_avalanche_image(stats: Stats, file: &mut File) {
-    const BIT_PIXEL_SIZE: usize = 8;
-    const WIDTH: usize = BIT_PIXEL_SIZE * 32 * 2;
-    const HEIGHT: usize = BIT_PIXEL_SIZE * 32;
-    let mut image = vec![0x00u8; 4 * WIDTH * HEIGHT];
-    let mut plot = |x: usize, y: usize, color: u8| {
-        let min_x = x * BIT_PIXEL_SIZE;
-        let min_y = y * BIT_PIXEL_SIZE;
-        let max_x = min_x + BIT_PIXEL_SIZE;
-        let max_y = min_y + BIT_PIXEL_SIZE;
-
-        for y in min_y..max_y {
-            for x in min_x..max_x {
-                image[(y * WIDTH + x) * 4] = color;
-                image[(y * WIDTH + x) * 4 + 1] = color;
-                image[(y * WIDTH + x) * 4 + 2] = color;
-                image[(y * WIDTH + x) * 4 + 3] = 0xFF;
-            }
-        }
-    };
-
-    for bit_in in 0..32 {
-        for bit_out in 0..32 {
-            let color_avalanche = (stats.0[bit_in][bit_out].min(1.0).max(0.0) * 255.0) as u8;
-            let color_tree = (stats.1[bit_in][bit_out].min(1.0).max(0.0) * 255.0) as u8;
-            plot(bit_out, bit_in, color_avalanche);
-            plot(bit_out + 32, bit_in, color_tree);
-        }
-    }
-    png_encode_mini::write_rgba_from_u8(file, &image, WIDTH as u32, HEIGHT as u32);
-}
-
-/// Scores the given hash statistics.
+/// Scores the given hash statistics.  Used for searching for better hashes.
 ///
 /// Lower score is better (like golf!).
 fn score_stats(stats: &Stats) -> f64 {
     let mut score = 0.0;
 
-    // Tree seeding bias metric
+    // Tree bias metric
     for x in 0..32 {
         for y in (x + 1)..32 {
-            let diff = stats.1[x][y] - 0.5;
+            let diff = stats.tree_bias[x][y] - 0.5;
+
+            // In practice, it seems we only need to worry about extreme,
+            // values, as avoiding extremes seems to bring everything to
+            // a good place.
             score += if diff.abs() > 0.45 { 1.0 } else { 0.0 };
-            // score += diff * diff;
         }
     }
 
-    // // Avalanche bias metric, trying to simply minimize bias in all
-    // // seeded trees as much as possible.
-    // for bit_out in 0..32 {
-    //     for bit_in in 0..bit_out {
-    //         let bias = stats.0[bit_in][bit_out];
-    //         score += bias * bias;
-    //     }
-    // }
-
     // Avalanche bias metric, trying to match the expected bias of a
-    // proper full Owen scramble.
+    // proper full Owen scramble.  The first sixteen values here were computed
+    // analytically, and the remaining were approximated following a strong
+    // trend in the values by that point, and should be "reasonably" accurate.
     const TARGET_BIAS: [f64; 32] = [
         0.0, 1.0, 0.5, 0.375, 0.273437, 0.19638, 0.139949, 0.099346, 0.070386, 0.049819, 0.035244,
         0.024927, 0.017628, 0.012466, 0.008815, 0.006233, 0.004407, 0.003117, 0.002204, 0.001558,
@@ -508,175 +331,10 @@ fn score_stats(stats: &Stats) -> f64 {
     ];
     for bit_out in 0..32 {
         for bit_in in 0..bit_out {
-            let diff = stats.0[bit_in][bit_out] - TARGET_BIAS[bit_out];
+            let diff = stats.avalanche_bias[bit_in][bit_out] - TARGET_BIAS[bit_out];
             score += diff * diff;
         }
     }
 
     score
-}
-
-/// Tries to find the best hash "structure".  In other words, the series of
-/// operations that give the best results across a wide range of constants.
-///
-/// It returns a list of good candidates and their scores.  The candidates
-/// themselves are encoded as integers.  They can be decoded with
-/// `hash_gen::print_encoded_hash_slice()`.
-fn find_good_hash_structure(
-    op_count: u32,
-    candidate_count: usize,
-    rounds: usize,
-) -> Vec<(f64, u128)> {
-    let mut candidates: Vec<(f64, u128)> = (0..candidate_count)
-        .map(|_| (std::f64::INFINITY, 0))
-        .collect();
-    let mut hash: Vec<HashOp> = (0..op_count).map(|_| HashOp::Nop).collect();
-
-    'outer: for i in 0..rounds {
-        print!("\r{}", i);
-        std::io::stdout().flush();
-
-        let mut any_mul_seed = false;
-        for i in 0..hash.len() {
-            hash[i] = HashOp::gen_random();
-            any_mul_seed |= hash[i].uses_mul_and_seed();
-        }
-        if !any_mul_seed {
-            continue;
-        }
-
-        let mut score = 0.0;
-        const CONSTANT_ROUNDS: u32 = 256;
-        for cr in 0..CONSTANT_ROUNDS {
-            for i in 0..hash.len() {
-                hash[i] = hash[i].new_constant();
-            }
-            const STAT_ROUNDS: u32 = 1 << 16;
-            let stats = measure_avalanche(
-                |n, s| hash_gen::exec_hash_slice(&hash, n, s),
-                STAT_ROUNDS,
-                false,
-            );
-            score += score_stats(&stats);
-
-            // Skip if it seems likely to be bad
-            let cur_score = score / (cr + 1) as f64;
-            if cur_score > 8.0 || (cr > 4 && cur_score > 4.0) || (cr > 32 && cur_score > 3.0) {
-                continue 'outer;
-            }
-        }
-        score /= CONSTANT_ROUNDS as f64;
-
-        if score < candidates[candidate_count - 1].0 {
-            candidates[candidate_count - 1] = (score, hash_gen::hash_slice_to_bits(&hash));
-            candidates.sort_unstable_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
-        }
-    }
-    println!();
-
-    candidates
-}
-
-/// Measures the avalanche bias of the provided hash function.
-///
-/// The returned 2d array contains (average bias, max bias) tuples for each
-/// bit pairing.  It's accessed as [input_bit][output_bit].
-fn measure_avalanche<F>(hash: F, rounds: u32, print_progress: bool) -> Stats
-where
-    F: Fn(u32, u32) -> u32 + Sync, // (input, seed) -> output
-{
-    // Break up the rounds into chunks that we can hoist off to different
-    // threads.
-    let sub_rounds = 256;
-    let loop_rounds = (rounds / sub_rounds) + ((rounds % sub_rounds) != 0) as u32;
-    let rounds = loop_rounds * sub_rounds;
-
-    if print_progress {
-        print!("Progress..");
-        std::io::stdout().flush();
-    }
-    let data = (0..loop_rounds)
-        .into_par_iter()
-        .map(|lr| {
-            if print_progress && (lr % (loop_rounds / 53).max(1)) == 0 {
-                let stdout = std::io::stdout();
-                let mut out = stdout.lock();
-                out.write_all(b".");
-                out.flush();
-            }
-
-            // Run tests and collect data.
-            let seed = rand::random::<u32>();
-            let mut data = STATS_ZERO;
-            for i in 0..sub_rounds {
-                let input_1 = rand::random::<u32>();
-                let output_1 = hash(input_1, seed);
-
-                // Avalanche bias.
-                for bit_in in 0..32 {
-                    let input_2 = input_1 ^ (1 << bit_in);
-                    let output_2 = hash(input_2, seed);
-                    let diff_1 = output_1 ^ output_2;
-                    for bit_out in 0..32 {
-                        if (diff_1 & (1 << bit_out)) != 0 {
-                            data.0[bit_in][bit_out] += 1.0;
-                        }
-                    }
-                }
-
-                // Tree seeding bias.
-                let seed2 = rand::random::<u32>();
-                let input_3 = rand::random::<u32>();
-                let output_3 = hash(input_3, seed2);
-                let input_4 = rand::random::<u32>();
-                let output_4 = hash(input_4, seed2);
-                let mut x = (input_3 ^ input_4 ^ output_3 ^ output_4).reverse_bits() as usize;
-                let mut y = (input_3 ^ input_4).reverse_bits() as usize;
-                x = x >> 26;
-                y = (y >> 26) - 32;
-                if y < 32 {
-                    // We lose some data by exluding samples, but in practice
-                    // it seems to be redundant anyway.  But take this out of
-                    // the of the if statement if something seems inconsistent
-                    // in the output.
-                    data.1[x & 0b11111][y & 0b11111] += 1.0;
-                }
-            }
-
-            // Process data.
-            for i in 0..32 {
-                for j in 0..32 {
-                    data.0[i][j] = (data.0[i][j] - (0.5 * sub_rounds as f64)).abs();
-                }
-            }
-
-            data
-        })
-        .reduce(
-            || STATS_ZERO,
-            |mut a, b| {
-                for i in 0..32 {
-                    for j in 0..32 {
-                        a.0[i][j] += b.0[i][j];
-                        a.1[i][j] += b.1[i][j];
-                    }
-                }
-                a
-            },
-        );
-    if print_progress {
-        print!(
-            "\r                                                                                \r"
-        );
-    }
-
-    let mut stats = STATS_ZERO;
-    for i in 0..32 {
-        for j in 0..32 {
-            stats.0[i][j] += data.0[i][j] * 2.0 / rounds as f64;
-            stats.1[i][j] += data.1[i][j] / rounds as f64 * 32.0 * 32.0;
-        }
-    }
-
-    stats
 }
