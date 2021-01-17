@@ -164,10 +164,10 @@ pub fn owen_scramble_u32(mut n: u32, scramble: u32) -> u32 {
     n ^= n.wrapping_mul(scramble & !1);
 
     // // Fast, good quality.
-    // n ^= n.wrapping_mul(0x08fc174a);
     // n = n.wrapping_add(scramble);
-    // n ^= n.wrapping_mul(scramble & !1);
-    // n = n.wrapping_mul(0xa16b9fb5);
+    // n ^= n.wrapping_mul(0xd270bd2a);
+    // n = n.wrapping_mul(scramble | 1);
+    // n ^= n.wrapping_mul(0xa942c26c);
 
     // // Pretty fast, very good quality.
     // n = n.wrapping_add(scramble);
