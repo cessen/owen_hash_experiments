@@ -53,12 +53,17 @@ fn main() {
         };
 
         for seed in 0..image_count {
+            let filename = if args.is_present("reference") {
+                format!("{:02}.png", seed)
+            } else {
+                format!("{:02}_ref.png", seed)
+            };
             generate_samples_image(
                 sample_function,
                 image_resolution,
                 &[256, 1024, 4096],
                 seed,
-                &format!("{:02}.png", seed),
+                &filename,
             );
         }
     }
@@ -129,11 +134,11 @@ fn do_test(rounds: u32, with_image: bool) {
         |n, seed| {
             let mut n = n;
 
-            // Reference Owen scramble implementation, performed on
-            // reversed bits.
-            n = n.reverse_bits();
-            n = sobol::owen_scramble_reference_u32(n, seed);
-            n = n.reverse_bits();
+            // // Reference Owen scramble implementation, performed on
+            // // reversed bits.
+            // n = n.reverse_bits();
+            // n = sobol::owen_scramble_reference_u32(n, seed);
+            // n = n.reverse_bits();
 
             // // Original Laine-Karras hash.
             // n = n.wrapping_add(seed);
@@ -150,27 +155,37 @@ fn do_test(rounds: u32, with_image: bool) {
             // n ^= 0x866350b1;
             // n = n.wrapping_mul(0x9e3779cd);
 
-            // // Run a generated hash.  Note: a constant of zero in an op
-            // // indicates using the seed.
-            // n = exec_hash_slice(
-            //     // Fast, reasonable quality.
-            //     &[
-            //         HashOp::Add(0),
-            //         HashOp::MulXor(0x3354734a),
-            //         HashOp::ShlAdd(2),
-            //         HashOp::MulXor(0),
-            //     ],
-            //     // // Medium-fast, good quality.
-            //     // &[
-            //     //     HashOp::Add(0),
-            //     //     HashOp::MulXor(0x046e2f26),
-            //     //     HashOp::Mul(0),
-            //     //     HashOp::MulXor(0x75d5ab5c),
-            //     //     HashOp::Mul(0xdc4d0c55),
-            //     // ],
-            //     n,
-            //     seed,
-            // );
+            // Run a generated hash.  Note: a constant of zero in an op
+            // indicates using the seed.
+            n = exec_hash_slice(
+                // // Fast, reasonable quality.
+                // &[
+                //     HashOp::Add(0),
+                //     HashOp::MulXor(0x3354734a),
+                //     HashOp::ShlAdd(2),
+                //     HashOp::MulXor(0),
+                // ],
+                // // Medium-fast, good quality.
+                // &[
+                //     HashOp::Add(0),
+                //     HashOp::MulXor(0x046e2f26),
+                //     HashOp::Mul(0),
+                //     HashOp::MulXor(0x75d5ab5c),
+                //     HashOp::Mul(0xdc4d0c55),
+                // ],
+
+                // Good 2-mul hash.
+                &[
+                    HashOp::ShlAdd(2),
+                    HashOp::MulXor(0xfe9b5742),
+                    HashOp::Add(0),
+                    HashOp::Mul(0),
+                ],
+                // // Best quality so far.
+                // &[HashOp::Mul(0x788aeeed), HashOp::MulXor(0x41506a02), HashOp::Add(0), HashOp::Mul(0), HashOp::MulXor(0x7483dc64), ],
+                n,
+                seed,
+            );
 
             n
         },
@@ -196,34 +211,47 @@ fn do_test(rounds: u32, with_image: bool) {
 fn do_hash_search(rounds: usize, with_image: bool) {
     use std::collections::HashMap;
 
-    const HASH_OP_COUNT: usize = 3;
     const CANDIDATE_COUNT: usize = 8;
     const STAT_ROUNDS: u32 = 1 << 18;
 
     // Method to use to generate new hashes.
     let generate = || {
-        // Generate a totally random hash, but ensuring at least one
-        // op that involves multiplying by the seed (which seems to be critical
-        // to all decent hashes).
-        let mut hash = [HashOp::Nop; 8];
-        let mut any_mul_seed = false;
-        while !any_mul_seed {
-            for i in 0..hash.len() {
-                hash[i] = HashOp::gen_random();
-                any_mul_seed |= hash[i].uses_mul_and_seed();
-            }
-        }
-        hash
+        // // Generate a totally random hash, but ensuring at least one
+        // // op that involves multiplying by the seed (which seems to be critical
+        // // to all decent hashes).
+        // let mut hash = [HashOp::Nop; 5];
+        // let mut any_mul_seed = false;
+        // while !any_mul_seed {
+        //     for i in 0..hash.len() {
+        //         hash[i] = HashOp::gen_random();
+        //         any_mul_seed |= hash[i].uses_mul_and_seed();
+        //     }
+        // }
+        // hash
 
         // // Start with an existing hash, and just generate a new random
         // // constant for one of the operations.
         // [
         //     HashOp::Add(0),
-        //     HashOp::MulXor(0x046e2f26),
+        //     HashOp::MulXor(0x046e2f26).new_constant(),
         //     HashOp::Mul(0x75d5ab5b).new_constant(),
         //     HashOp::MulXor(0),
-        //     HashOp::Mul(0xdc4d0c55),
+        //     HashOp::Mul(0xdc4d0c55).new_constant(),
         // ]
+
+        // [
+        //     HashOp::gen_random(),
+        //     HashOp::gen_random(),
+        //     HashOp::gen_random(),
+        //     HashOp::gen_random(),
+        // ]
+
+        [
+            HashOp::ShlAdd(2),
+            HashOp::MulXor(123).new_constant(),
+            HashOp::Add(0),
+            HashOp::Mul(0),
+        ]
     };
 
     //----------------
@@ -310,12 +338,8 @@ fn score_stats(stats: &Stats) -> f64 {
     // Tree bias metric
     for x in 0..32 {
         for y in (x + 1)..32 {
-            let diff = stats.tree_bias[x][y] - 0.5;
-
-            // In practice, it seems we only need to worry about extreme,
-            // values, as avoiding extremes seems to bring everything to
-            // a good place.
-            score += if diff.abs() > 0.45 { 1.0 } else { 0.0 };
+            let diff = (stats.tree_bias[x][y] - 0.5) * 2.0;
+            score += diff * diff;
         }
     }
 

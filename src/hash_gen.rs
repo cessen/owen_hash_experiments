@@ -28,12 +28,30 @@ impl HashOp {
 
         match random::<u32>() % 3 {
             0 => HashOp::Add(constant),
-            1 => HashOp::Mul(constant | 1),
+            1 => {
+                if constant == 0 {
+                    HashOp::Mul(0)
+                } else {
+                    HashOp::Mul(constant | 1)
+                }
+            }
             2 => HashOp::MulXor(constant & !1),
-            // 3 => HashOp::Xor(constant),
-            // 4 => HashOp::ShlXor((constant % 31) + 1),
-            // 5 => HashOp::ShlAdd((constant % 31) + 1),
-            // 6 => HashOp::Nop,
+            3 => HashOp::Xor(constant),
+            4 => {
+                if constant == 0 {
+                    HashOp::ShlXor(0)
+                } else {
+                    HashOp::ShlXor((constant % 31) + 1)
+                }
+            }
+            5 => {
+                if constant == 0 {
+                    HashOp::ShlAdd(0)
+                } else {
+                    HashOp::ShlAdd((constant % 31) + 1)
+                }
+            }
+            6 => HashOp::Nop,
             _ => unreachable!(),
         }
     }

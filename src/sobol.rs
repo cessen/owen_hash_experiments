@@ -2,6 +2,8 @@
 
 use super::hash_u32;
 
+use super::hash_gen::{exec_hash_slice, HashOp};
+
 // The following `include` provides `MAX_DIMENSION` and `VECTORS`.
 // See the build.rs file for how this included file is generated.
 include!(concat!(env!("OUT_DIR"), "/vectors.inc"));
@@ -61,41 +63,52 @@ fn sobol_u32(index: u32, dimension: u32) -> u32 {
 /// Scrambles `n` using fast hash-based Owen scrambling.
 ///
 /// Various hashes are included below, and can be uncommented to try them out.
-pub fn owen_scramble_fast_u32(n: u32, seed: u32) -> u32 {
-    let mut n = n.reverse_bits();
+pub fn owen_scramble_fast_u32(x: u32, seed: u32) -> u32 {
+    let mut x = x.reverse_bits();
 
     // Randomize the seed value.
     let seed = hash_u32(seed, 0xa14a177d);
 
     // // Original Laine-Karras hash.
-    // n = n.wrapping_add(seed);
-    // n ^= n.wrapping_mul(0x6c50b47c);
-    // n ^= n.wrapping_mul(0xb82f1e52);
-    // n ^= n.wrapping_mul(0xc7afe638);
-    // n ^= n.wrapping_mul(0x8d22f6e6);
+    // x = x.wrapping_add(seed);
+    // x ^= x.wrapping_mul(0x6c50b47c);
+    // x ^= x.wrapping_mul(0xb82f1e52);
+    // x ^= x.wrapping_mul(0xc7afe638);
+    // x ^= x.wrapping_mul(0x8d22f6e6);
 
-    // // Improved version 2.
+    // // "Improved" version 2.  Not actually that good.
     // // From https://psychopath.io/post/2021_01_02_sobol_sampling_take_2
-    // n = n.wrapping_add(seed);
-    // n ^= 0xdc967795;
-    // n = n.wrapping_mul(0x97b756bb);
-    // n ^= 0x866350b1;
-    // n = n.wrapping_mul(0x9e3779cd);
+    // x = x.wrapping_add(seed);
+    // x ^= 0xdc967795;
+    // x = x.wrapping_mul(0x97b756bb);
+    // x ^= 0x866350b1;
+    // x = x.wrapping_mul(0x9e3779cd);
 
-    // Fast, reasonable quality.
-    n = n.wrapping_add(seed);
-    n ^= n.wrapping_mul(0x3354734a);
-    n = n.wrapping_add(n << 2);
-    n ^= n.wrapping_mul(seed & !1);
+    // // Fast, reasonable quality.
+    // x = x.wrapping_add(x << 2);
+    // x ^= x.wrapping_mul(0xfe9b5742);
+    // x = x.wrapping_add(seed);
+    // x = x.wrapping_mul(seed | 1);
 
-    // // Medium-fast, good quality.
-    // n = n.wrapping_add(seed);
-    // n ^= n.wrapping_mul(0x046e2f26);
-    // n = n.wrapping_mul(seed | 1);
-    // n ^= n.wrapping_mul(0x75d5ab5c);
-    // n = n.wrapping_mul(0xdc4d0c55);
+    // // Medium-fast, best quality so far.
+    x = x.wrapping_mul(0x788aeeed);
+    x ^= x.wrapping_mul(0x41506a02);
+    x = x.wrapping_add(seed);
+    x = x.wrapping_mul(seed | 1);
+    x ^= x.wrapping_mul(0x7483dc64);
 
-    n.reverse_bits()
+    // x = exec_hash_slice(
+    //     // Good 2-mul hash.
+    //     &[HashOp::ShlAdd(2), HashOp::MulXor(0xfe9b5742), HashOp::Add(0), HashOp::Mul(0), ],
+
+    //     // // Best quality so far.
+    //     // &[HashOp::Mul(0x788aeeed), HashOp::MulXor(0x41506a02), HashOp::Add(0), HashOp::Mul(0), HashOp::MulXor(0x7483dc64), ],
+
+    //     x,
+    //     seed,
+    // );
+
+    x.reverse_bits()
 }
 
 /// Same as `owen_scramble_fast_u32()` above, except uses a slower

@@ -64,17 +64,21 @@ where
                 let output_3 = hash(input_3, seed2);
                 let input_4 = rand::random::<u32>();
                 let output_4 = hash(input_4, seed2);
-                let mut x = (input_3 ^ input_4 ^ output_3 ^ output_4).reverse_bits() as usize;
-                let mut y = (input_3 ^ input_4).reverse_bits() as usize;
-                x = x >> 26;
-                y = (y >> 26) - 32;
-                if y < 32 {
-                    // We lose some data by exluding samples, but in practice
-                    // it seems to be redundant anyway.  But take this out of
-                    // the of the if statement if something seems inconsistent
-                    // in the output.
-                    data.tree_bias[x & 0b11111][y & 0b11111] += 1.0;
+                let mut x = output_3 ^ output_4;
+                let mut y = input_3 ^ input_4;
+                while x & 1 == 0 && y & 1 == 0 && (x != 0 || y != 0) {
+                    x >>= 1;
+                    y >>= 1;
                 }
+                x = x.reverse_bits() >> 26;
+                y = y.reverse_bits() >> 26;
+                // if y < 32 {
+                // We lose some data by exluding samples, but in practice
+                // it seems to be redundant anyway.  But take this out of
+                // the of the if statement if something seems inconsistent
+                // in the output.
+                data.tree_bias[x as usize & 0b11111][y as usize & 0b11111] += 0.5;
+                // }
             }
 
             // Process data.
