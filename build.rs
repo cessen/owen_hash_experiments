@@ -25,9 +25,7 @@
 use std::{env, fs::File, io::Write, path::Path};
 
 /// What file to generate the sobol numbers from.
-const DIRECTION_NUMBERS_TEXT: &str = include_str!("direction_numbers/new-joe-kuo-5.1024.txt");
-// const DIRECTION_NUMBERS_TEXT: &str = include_str!("direction_numbers/joe-kuo-other-3.1024.txt");
-// const DIRECTION_NUMBERS_TEXT: &str = include_str!("direction_numbers/new-joe-kuo-6.1024.txt");
+const DIRECTION_NUMBERS_TEXT: &str = include_str!("direction_numbers/new-joe-kuo-6.1024.txt");
 
 /// How many components to generate.
 const NUM_DIMENSIONS: usize = 128;

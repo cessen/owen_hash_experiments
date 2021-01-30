@@ -1,0 +1,32 @@
+The files in this directory are originally from the supplemental material of the paper "Practical Hash-based Owen Scrambling" by Brent Burley.
+
+They have been modified to include the hash-based Owen scrambles from:
+https://psychopath.io/post/2021_01_30_building_a_better_lk_hash
+
+In viewpoints.py there are the following sequence you can play with:
+
+random               - using PCG32
+
+faure_05             - (0,5) sequence from Faure 1982
+
+sobol                - Sobol' sequence
+
+sobol_rds            - Sobol' w/ random digit scrambling
+
+sobol_owen           - Sobol' w/ full Owen scrambling and shuffling
+
+sobol_owen_hash_lk   - Sobol' w/ Owen scrambling and shuffling using
+                       the Original Laine-Harras hash
+
+sobol_owen_hash_v2   - Sobol' w/ Owen scrambling and shuffling using
+                       the hash from
+                       https://psychopath.io/post/2021_01_02_sobol_sampling_take_2
+
+sobol_owen_hash_fast - Sobol' w/ Owen scrambling and shuffling using
+                       the fast hash from the results in
+                       https://psychopath.io/post/2021_01_30_building_a_better_lk_hash
+
+sobol_owen_hash_good - Sobol' w/ Owen scrambling and shuffling using
+                       the high-quality hash from the results in
+                       https://psychopath.io/post/2021_01_30_building_a_better_lk_hash
+
