@@ -80,7 +80,7 @@ pub fn owen_scramble_fast_u32(x: u32, seed: u32) -> u32 {
     // // From https://psychopath.io/post/2021_01_02_sobol_sampling_take_2
     // x = x.wrapping_add(seed);
     // x ^= 0xdc967795;
-    // x = x.wrapping_mul(0x97b756bb);
+    // x = x.wrapping_mul(0x97b754b7);
     // x ^= 0x866350b1;
     // x = x.wrapping_mul(0x9e3779cd);
 
