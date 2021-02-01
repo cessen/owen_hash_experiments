@@ -5,12 +5,14 @@ use rayon::prelude::*;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Stats {
-    pub avalanche_bias: [[f64; 32]; 32],
+    pub avalanche: [[f64; 32]; 32],
+    pub avalanche_avg_bias: [[f64; 32]; 32], // Average avalanche bias over many seeds.
     pub tree_bias: [[f64; 32]; 32],
 }
 
 pub const STATS_ZERO: Stats = Stats {
-    avalanche_bias: [[0.0; 32]; 32],
+    avalanche: [[0.0; 32]; 32],
+    avalanche_avg_bias: [[0.0; 32]; 32],
     tree_bias: [[0.0; 32]; 32],
 };
 
@@ -43,17 +45,17 @@ where
             let seed = rand::random::<u32>();
             let mut data = STATS_ZERO;
             for i in 0..sub_rounds {
+                // Avalanche and avalanche bias.
                 let input_1 = rand::random::<u32>();
                 let output_1 = hash(input_1, seed);
-
-                // Avalanche bias.
                 for bit_in in 0..32 {
                     let input_2 = input_1 ^ (1 << bit_in);
                     let output_2 = hash(input_2, seed);
                     let diff_1 = output_1 ^ output_2;
                     for bit_out in 0..32 {
                         if (diff_1 & (1 << bit_out)) != 0 {
-                            data.avalanche_bias[bit_in][bit_out] += 1.0;
+                            data.avalanche[bit_in][bit_out] += 1.0;
+                            data.avalanche_avg_bias[bit_in][bit_out] += 1.0;
                         }
                     }
                 }
@@ -70,22 +72,16 @@ where
                     x >>= 1;
                     y >>= 1;
                 }
-                x = x.reverse_bits() >> 26;
                 y = y.reverse_bits() >> 26;
-                // if y < 32 {
-                // We lose some data by exluding samples, but in practice
-                // it seems to be redundant anyway.  But take this out of
-                // the of the if statement if something seems inconsistent
-                // in the output.
+                x = x.reverse_bits() >> 26;
                 data.tree_bias[x as usize & 0b11111][y as usize & 0b11111] += 0.5;
-                // }
             }
 
             // Process data.
             for i in 0..32 {
                 for j in 0..32 {
-                    data.avalanche_bias[i][j] =
-                        (data.avalanche_bias[i][j] - (0.5 * sub_rounds as f64)).abs();
+                    data.avalanche_avg_bias[i][j] =
+                        (data.avalanche_avg_bias[i][j] - (0.5 * sub_rounds as f64)).abs();
                 }
             }
 
@@ -96,7 +92,8 @@ where
             |mut a, b| {
                 for i in 0..32 {
                     for j in 0..32 {
-                        a.avalanche_bias[i][j] += b.avalanche_bias[i][j];
+                        a.avalanche[i][j] += b.avalanche[i][j];
+                        a.avalanche_avg_bias[i][j] += b.avalanche_avg_bias[i][j];
                         a.tree_bias[i][j] += b.tree_bias[i][j];
                     }
                 }
@@ -112,7 +109,8 @@ where
     let mut stats = STATS_ZERO;
     for i in 0..32 {
         for j in 0..32 {
-            stats.avalanche_bias[i][j] += data.avalanche_bias[i][j] * 2.0 / rounds as f64;
+            stats.avalanche[i][j] += data.avalanche[i][j] / rounds as f64;
+            stats.avalanche_avg_bias[i][j] += data.avalanche_avg_bias[i][j] * 2.0 / rounds as f64;
             stats.tree_bias[i][j] += data.tree_bias[i][j] / rounds as f64 * 32.0 * 32.0;
         }
     }
@@ -125,7 +123,7 @@ pub fn print_stats(stats: Stats) {
     let mut reduced_stats = [0.0f64; 32]; // (avg, max)
     for bit_in in 0..32 {
         for bit_out in (bit_in + 1)..32 {
-            reduced_stats[bit_out] += stats.avalanche_bias[bit_in][bit_out] / bit_out as f64;
+            reduced_stats[bit_out] += stats.avalanche_avg_bias[bit_in][bit_out] / bit_out as f64;
         }
     }
 
@@ -133,7 +131,7 @@ pub fn print_stats(stats: Stats) {
     let mut avg_bias = 0.0;
     for bit_in in 0..32 {
         for bit_out in (bit_in + 1)..32 {
-            avg_bias += stats.avalanche_bias[bit_in][bit_out];
+            avg_bias += stats.avalanche_avg_bias[bit_in][bit_out];
         }
     }
     avg_bias /= (32 * 31 / 2) as f64;
@@ -145,7 +143,7 @@ pub fn print_stats(stats: Stats) {
 
 pub fn write_stats_image(stats: Stats, file: &mut File) {
     const BIT_PIXEL_SIZE: usize = 8;
-    const WIDTH: usize = BIT_PIXEL_SIZE * 32 * 2;
+    const WIDTH: usize = BIT_PIXEL_SIZE * 32 * 3;
     const HEIGHT: usize = BIT_PIXEL_SIZE * 32;
     let mut image = vec![0x00u8; 4 * WIDTH * HEIGHT];
     let mut plot = |x: usize, y: usize, color: u8| {
@@ -167,10 +165,13 @@ pub fn write_stats_image(stats: Stats, file: &mut File) {
     for bit_in in 0..32 {
         for bit_out in 0..32 {
             let color_avalanche =
-                (stats.avalanche_bias[bit_in][bit_out].min(1.0).max(0.0) * 255.0) as u8;
+                (stats.avalanche[bit_in][bit_out].min(1.0).max(0.0) * 255.0) as u8;
+            let color_avalanche_bias =
+                (stats.avalanche_avg_bias[bit_in][bit_out].min(1.0).max(0.0) * 255.0) as u8;
             let color_tree = (stats.tree_bias[bit_in][bit_out].min(1.0).max(0.0) * 255.0) as u8;
             plot(bit_out, bit_in, color_avalanche);
-            plot(bit_out + 32, bit_in, color_tree);
+            plot(bit_out + 32, bit_in, color_avalanche_bias);
+            plot(bit_out + 64, bit_in, color_tree);
         }
     }
     png_encode_mini::write_rgba_from_u8(file, &image, WIDTH as u32, HEIGHT as u32);

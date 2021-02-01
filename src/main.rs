@@ -157,7 +157,7 @@ fn do_test(rounds: u32, with_image: bool) {
             // Run a generated hash.  Note: a constant of zero in an op
             // indicates using the seed.
             n = exec_hash_slice(
-                // // // Good 2-mul hash.
+                // // Good 2-mul hash.
                 // &[
                 //     HashOp::ShlAdd(2),
                 //     HashOp::MulXor(0xfe9b5742),
@@ -202,7 +202,7 @@ fn do_hash_search(rounds: usize, with_image: bool) {
     use std::collections::HashMap;
 
     const CANDIDATE_COUNT: usize = 8;
-    const STAT_ROUNDS: u32 = 1 << 18;
+    const STAT_ROUNDS: u32 = 1 << 20;
 
     // Method to use to generate new hashes.
     let generate = || {
@@ -285,8 +285,8 @@ fn do_hash_search(rounds: usize, with_image: bool) {
 //=======================================================================
 
 fn hash_u32(n: u32, seed: u32) -> u32 {
-    // Seeding.  This is totally hacked together, but it seems to work well.
-    let mut n = 1 + n.wrapping_add(seed.wrapping_mul(0x736caf6f));
+    // Seeding.
+    let mut n = 0x6217c6e1 ^ n.wrapping_add(seed.wrapping_mul(0x9e3779b9));
 
     // From https://github.com/skeeto/hash-prospector
     n ^= n >> 17;
@@ -306,10 +306,10 @@ fn hash_u32(n: u32, seed: u32) -> u32 {
 fn score_stats(stats: &Stats) -> f64 {
     let mut score = 0.0;
 
-    // Tree bias metric
-    for x in 0..32 {
-        for y in (x + 1)..32 {
-            let diff = (stats.tree_bias[x][y] - 0.5) * 2.0;
+    // Avalanche metric.
+    for bit_out in 0..32 {
+        for bit_in in 0..bit_out {
+            let diff = stats.avalanche[bit_in][bit_out] - 0.5;
             score += diff * diff;
         }
     }
@@ -326,7 +326,15 @@ fn score_stats(stats: &Stats) -> f64 {
     ];
     for bit_out in 0..32 {
         for bit_in in 0..bit_out {
-            let diff = stats.avalanche_bias[bit_in][bit_out] - TARGET_BIAS[bit_out];
+            let diff = stats.avalanche_avg_bias[bit_in][bit_out] - TARGET_BIAS[bit_out];
+            score += diff * diff;
+        }
+    }
+
+    // Tree bias metric
+    for x in 0..32 {
+        for y in (x + 1)..32 {
+            let diff = (stats.tree_bias[x][y] - 0.5) * 2.0;
             score += diff * diff;
         }
     }
