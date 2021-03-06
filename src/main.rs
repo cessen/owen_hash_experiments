@@ -206,23 +206,23 @@ fn do_hash_search(rounds: usize, with_image: bool) {
 
     // Method to use to generate new hashes.
     let generate = || {
-        // // Generate a totally random 5-op hash.
-        // [
-        //     HashOp::gen_random(),
-        //     HashOp::gen_random(),
-        //     HashOp::gen_random(),
-        //     HashOp::gen_random(),
-        //     HashOp::gen_random(),
-        // ]
-
-        // Start with an existing hash, and generate a new random
-        // constant for one of the operations.
+        // Generate a totally random 5-op hash.
         [
-            HashOp::ShlAdd(2),
-            HashOp::MulXor(123).new_constant(),
-            HashOp::Add(0),
-            HashOp::Mul(0),
+            HashOp::gen_random(),
+            HashOp::gen_random(),
+            HashOp::gen_random(),
+            HashOp::gen_random(),
+            HashOp::gen_random(),
         ]
+
+        // // Start with an existing hash, and generate a new random
+        // // constant for one of the operations.
+        // [
+        //     HashOp::ShlAdd(2),
+        //     HashOp::MulXor(123).new_constant(),
+        //     HashOp::Add(0),
+        //     HashOp::Mul(0),
+        // ]
     };
 
     //----------------

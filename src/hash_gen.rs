@@ -26,7 +26,7 @@ impl HashOp {
             random::<u32>()
         };
 
-        match random::<u32>() % 3 {
+        match random::<u32>() % 7 {
             0 => HashOp::Add(constant),
             1 => {
                 if constant == 0 {
