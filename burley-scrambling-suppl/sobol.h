@@ -107,11 +107,11 @@ inline void shuffled_scrambled_sobol4d_v2(uint32_t index, uint32_t seed,
 inline uint32_t nested_uniform_scramble_base2_5round(uint32_t x, uint32_t seed) {
   x = reverse_bits(x);
 
-  x *= 0x788aeeed;
-  x ^= x * 0x41506a02;
+  x ^= x * 0x3d20adea;
   x += seed;
-  x *= seed | 1;
-  x ^= x * 0x7483dc64;
+  x *= (seed >> 16) | 1;
+  x ^= x * 0x05526c56;
+  x ^= x * 0x53a22864;
 
   x = reverse_bits(x);
   return x;
@@ -135,7 +135,7 @@ inline uint32_t nested_uniform_scramble_base2_fast(uint32_t x, uint32_t seed) {
   x += x << 2;
   x ^= x * 0xfe9b5742;
   x += seed;
-  x *= seed | 1;
+  x *= (seed >> 16) | 1;
 
   x = reverse_bits(x);
   return x;

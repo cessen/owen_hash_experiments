@@ -15,6 +15,7 @@ pub enum HashOp {
     ShlXor(u32), // x ^= x << constant[1, 31]
     ShlAdd(u32), // x += x << constant[1, 31]
     MulXor(u32), // x ^= x * even_constant
+    SeedMix,     // The super effective seed mixing approach.
 }
 
 impl HashOp {
@@ -26,7 +27,7 @@ impl HashOp {
             random::<u32>()
         };
 
-        match random::<u32>() % 7 {
+        match random::<u32>() % 8 {
             0 => HashOp::Add(constant),
             1 => {
                 if constant == 0 {
@@ -51,7 +52,8 @@ impl HashOp {
                     HashOp::ShlAdd((constant % 31) + 1)
                 }
             }
-            6 => HashOp::Nop,
+            6 => HashOp::SeedMix,
+            7 => HashOp::Nop,
             _ => unreachable!(),
         }
     }
@@ -59,6 +61,7 @@ impl HashOp {
     pub fn new_constant(&self) -> HashOp {
         match *self {
             HashOp::Nop => *self,
+            HashOp::SeedMix => *self,
 
             HashOp::Xor(c) => {
                 if c == 0 {
@@ -161,6 +164,11 @@ impl HashOp {
                     x ^ x.wrapping_mul(c)
                 }
             }
+
+            HashOp::SeedMix => {
+                let a = x.wrapping_add(seed);
+                a.wrapping_mul((seed >> 16) | 1)
+            }
         }
     }
 
@@ -173,6 +181,7 @@ impl HashOp {
             HashOp::ShlXor(c) => false,
             HashOp::ShlAdd(c) => false,
             HashOp::MulXor(c) => c == 0,
+            HashOp::SeedMix => true,
         }
     }
 }

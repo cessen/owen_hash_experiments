@@ -23,7 +23,7 @@ where
 {
     // Break up the rounds into chunks that we can hoist off to different
     // threads.
-    let sub_rounds = 256;
+    let sub_rounds = 4096;
     let loop_rounds = (rounds / sub_rounds) + ((rounds % sub_rounds) != 0) as u32;
     let rounds = loop_rounds * sub_rounds;
 

@@ -36,7 +36,7 @@ fn main() {
     if args.is_present("test") {
         let rounds = args
             .value_of("number")
-            .unwrap_or("4000000")
+            .unwrap_or("10000000")
             .parse()
             .unwrap();
         do_test(rounds, true);
@@ -154,28 +154,36 @@ fn do_test(rounds: u32, with_image: bool) {
             // n ^= 0x866350b1;
             // n = n.wrapping_mul(0x9e3779cd);
 
-            // Run a generated hash.  Note: a constant of zero in an op
-            // indicates using the seed.
-            n = exec_hash_slice(
-                // // Good 2-mul hash.
-                // &[
-                //     HashOp::ShlAdd(2),
-                //     HashOp::MulXor(0xfe9b5742),
-                //     HashOp::Add(0),
-                //     HashOp::Mul(0),
-                // ],
+            // // From https://psychopath.io/post/2021_01_30_building_a_better_lk_hash
+            // // Old broken version.
+            // n *= 0x788aeeed;
+            // n ^= n * 0x41506a02;
+            // n += seed;
+            // n *= seed | 1;
+            // n ^= n * 0x7483dc64;
 
-                // Best quality so far.
-                &[
-                    HashOp::Mul(0x788aeeed),
-                    HashOp::MulXor(0x41506a02),
-                    HashOp::Add(0),
-                    HashOp::Mul(0),
-                    HashOp::MulXor(0x7483dc64),
-                ],
-                n,
-                seed,
-            );
+            // // From https://psychopath.io/post/2021_01_30_building_a_better_lk_hash
+            // // Old fast broken version.
+            // n += n << 2;
+            // n ^= n * 0xfe9b5742;
+            // n += seed;
+            // n *= seed | 1;
+
+            // From https://psychopath.io/post/2021_01_30_building_a_better_lk_hash
+            // From the updated post, fixing the issue that Matt Pharr found.
+            n ^= n * 0x3d20adea;
+            n += seed;
+            n *= (seed >> 16) | 1;
+            n ^= n * 0x05526c56;
+            n ^= n * 0x53a22864;
+
+            // // Run a generated hash.  Note: a constant of zero in an op
+            // // indicates using the seed.
+            // n = exec_hash_slice(
+            //     &[HashOp::ShlAdd(2), HashOp::MulXor(2924493090), HashOp::SeedMix, ],
+            //     n,
+            //     seed,
+            // );
 
             n
         },
@@ -201,28 +209,27 @@ fn do_test(rounds: u32, with_image: bool) {
 fn do_hash_search(rounds: usize, with_image: bool) {
     use std::collections::HashMap;
 
-    const CANDIDATE_COUNT: usize = 8;
-    const STAT_ROUNDS: u32 = 1 << 20;
+    const CANDIDATE_COUNT: usize = 4;
+    const STAT_ROUNDS: u32 = 1 << 22;
 
     // Method to use to generate new hashes.
     let generate = || {
-        // Generate a totally random 5-op hash.
-        [
-            HashOp::gen_random(),
-            HashOp::gen_random(),
-            HashOp::gen_random(),
-            HashOp::gen_random(),
-            HashOp::gen_random(),
-        ]
-
-        // // Start with an existing hash, and generate a new random
-        // // constant for one of the operations.
+        // // Generate a totally random 5-op hash.
         // [
-        //     HashOp::ShlAdd(2),
-        //     HashOp::MulXor(123).new_constant(),
-        //     HashOp::Add(0),
-        //     HashOp::Mul(0),
+        //     HashOp::gen_random(),
+        //     HashOp::gen_random(),
+        //     HashOp::gen_random(),
+        //     HashOp::gen_random(),
         // ]
+
+        // Start with an existing hash, and generate a new random
+        // constant for some of the operations.
+        [
+            HashOp::MulXor(123).new_constant(),
+            HashOp::SeedMix,
+            HashOp::MulXor(123).new_constant(),
+            HashOp::MulXor(123).new_constant(),
+        ]
     };
 
     //----------------
@@ -331,13 +338,15 @@ fn score_stats(stats: &Stats) -> f64 {
         }
     }
 
-    // Tree bias metric
-    for x in 0..32 {
-        for y in (x + 1)..32 {
-            let diff = (stats.tree_bias[x][y] - 0.5) * 2.0;
-            score += diff * diff;
-        }
-    }
+    // // Tree bias metric
+    // // With the new seed mixing op, this is unnecessary to target since
+    // // it's pretty much always perfect.
+    // for x in 0..32 {
+    //     for y in (x + 1)..32 {
+    //         let diff = (stats.tree_bias[x][y] - 0.5) * 2.0;
+    //         score += diff * diff;
+    //     }
+    // }
 
     score
 }
