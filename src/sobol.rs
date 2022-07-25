@@ -116,9 +116,9 @@ pub fn owen_scramble_fast_u32(x: u32, seed: u32) -> u32 {
 pub fn owen_scramble_reference_u32(n: u32, seed: u32) -> u32 {
     // A high-quality, seedable hash function.
     // See https://en.wikipedia.org/wiki/SipHash
-    fn siphash(n: u32, seed1: u32, seed2: u32) -> u32 {
+    fn siphash(n: u32, seed: u32) -> u32 {
         use std::hash::Hasher;
-        let mut hasher = siphasher::sip::SipHasher13::new_with_keys(seed1 as u64, seed2 as u64);
+        let mut hasher = siphasher::sip::SipHasher13::new_with_keys(seed as u64, seed as u64);
         hasher.write_u32(n);
         hasher.finish() as u32
     }
@@ -128,7 +128,7 @@ pub fn owen_scramble_reference_u32(n: u32, seed: u32) -> u32 {
     let mut out_bits = n;
     for bit in 0..32 {
         let high_mask = !1 << bit;
-        let hash = siphash(in_bits & high_mask, seed, bit);
+        let hash = siphash(in_bits & high_mask, seed);
         out_bits ^= hash & (1 << bit);
     }
 
