@@ -126,9 +126,8 @@ pub fn owen_scramble_reference_u32(n: u32, seed: u32) -> u32 {
     // The Owen scramble.
     let in_bits = n;
     let mut out_bits = n;
-    out_bits ^= siphash(0, seed, 31) & (1 << 31); // Do highest bit, which isn't handled by the loop.
-    for bit in 0..31 {
-        let high_mask = !(1u32 << (bit + 1)).wrapping_sub(1);
+    for bit in 0..32 {
+        let high_mask = !1 << bit;
         let hash = siphash(in_bits & high_mask, seed, bit);
         out_bits ^= hash & (1 << bit);
     }

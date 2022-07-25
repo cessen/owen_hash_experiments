@@ -185,6 +185,9 @@ fn do_test(rounds: u32, with_image: bool) {
             //     seed,
             // );
 
+            // // High quality reference.
+            // n = sobol::owen_scramble_reference_u32(n, seed);
+
             n
         },
         rounds,
